@@ -62,3 +62,30 @@ CREATE TABLE IF NOT EXISTS inquiries (
   handled_at    TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS inquiries_created_idx ON inquiries (created_at DESC);
+
+-- Track record integrity: alerts can never be deleted, and the facts recorded
+-- at send time (ticker, time, price, sponsorship) can never be changed.
+-- Only the outcome fields (high_after, close_after, result, notes) can be filled in later.
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
+CREATE OR REPLACE FUNCTION alerts_guard() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' OR TG_OP = 'TRUNCATE' THEN
+    RAISE EXCEPTION 'alerts are permanent: the public track record cannot be deleted';
+  END IF;
+  IF NEW.ticker IS DISTINCT FROM OLD.ticker
+     OR NEW.alerted_at IS DISTINCT FROM OLD.alerted_at
+     OR NEW.alert_price IS DISTINCT FROM OLD.alert_price
+     OR NEW.sponsored IS DISTINCT FROM OLD.sponsored
+     OR NEW.sponsor_comp IS DISTINCT FROM OLD.sponsor_comp
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+    RAISE EXCEPTION 'alert %: ticker, time, price and sponsorship are permanent', OLD.id;
+  END IF;
+  NEW.updated_at := now();
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS alerts_guard_row ON alerts;
+CREATE TRIGGER alerts_guard_row BEFORE UPDATE OR DELETE ON alerts FOR EACH ROW EXECUTE FUNCTION alerts_guard();
+DROP TRIGGER IF EXISTS alerts_guard_truncate ON alerts;
+CREATE TRIGGER alerts_guard_truncate BEFORE TRUNCATE ON alerts FOR EACH STATEMENT EXECUTE FUNCTION alerts_guard();

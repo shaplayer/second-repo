@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, hasDb } from "@/lib/db";
 import { SMS_CONSENT_TEXT, SMS_WELCOME, toE164US } from "@/lib/sms-consent";
-import { sendSms, smsConfigured } from "@/lib/sms";
+import { smsProvider } from "@/lib/sms";
 
 export const dynamic = "force-dynamic";
 
@@ -70,11 +70,12 @@ export async function POST(req: Request) {
        RETURNING (xmax = 0) AS inserted`,
       [phone, SMS_CONSENT_TEXT, ip, ua, source],
     );
-    if (smsConfigured()) {
-      try { await sendSms(phone!, SMS_WELCOME); }
-      catch (e) { console.error("[subscribe] welcome SMS failed:", (e as Error).message); }
+    const sms = smsProvider();
+    if (sms.configured()) {
+      try { await sms.send(phone!, SMS_WELCOME); }
+      catch (e) { console.error(`[subscribe] welcome SMS via ${sms.name} failed:`, (e as Error).message); }
     } else {
-      console.warn("[subscribe] Twilio not configured; SMS sign-up stored but no welcome text sent");
+      console.warn(`[subscribe] SMS provider "${sms.name}" not configured; sign-up stored, no welcome text sent`);
     }
     return NextResponse.json({ ok: true, new: rows[0]?.inserted ?? true });
   } catch (e) {

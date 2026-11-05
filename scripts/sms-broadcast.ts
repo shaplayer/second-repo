@@ -6,10 +6,10 @@
  * Sponsored alerts must include the compensation disclosure in the text.
  */
 import { db } from "../lib/db";
-import { sendSms, smsConfigured } from "../lib/sms";
+import { smsProvider } from "../lib/sms";
 import { SMS_FOOTER } from "../lib/sms-consent";
 
-const RATE_PER_SEC = Number(process.env.SMS_RATE_PER_SEC ?? 10); // match your Twilio throughput
+const RATE_PER_SEC = Number(process.env.SMS_RATE_PER_SEC ?? 10); // match your provider throughput
 
 async function main() {
   const args = process.argv.slice(2);
@@ -24,13 +24,15 @@ async function main() {
   console.log(`Message (${body.length} chars, ~${Math.ceil(body.length / 153)} segment(s)):\n---\n${body}\n---`);
   console.log(`Recipients: ${rows.length}`);
   if (!send) { console.log("Dry run. Add --send to deliver."); process.exit(0); }
-  if (!smsConfigured()) throw new Error("Twilio env vars are not set");
+  const sms = smsProvider();
+  if (!sms.configured()) throw new Error(`SMS provider "${sms.name}" is not configured`);
+  console.log(`Sending via ${sms.name}…`);
 
   let ok = 0, failed = 0;
   const gap = 1000 / RATE_PER_SEC;
   for (const r of rows) {
     const started = Date.now();
-    try { await sendSms(r.phone, body); ok++; }
+    try { await sms.send(r.phone, body); ok++; }
     catch (e) { failed++; console.error(r.phone.slice(0, -4) + "XXXX", (e as Error).message); }
     const wait = gap - (Date.now() - started);
     if (wait > 0) await new Promise((res) => setTimeout(res, wait));

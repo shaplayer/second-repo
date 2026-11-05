@@ -1,6 +1,8 @@
 import type { AlertRow } from "@/lib/alerts";
 import { links } from "@/lib/site";
-import { formatET, formatPercent, formatPrice } from "@/lib/format";
+import { formatPercent } from "@/lib/format";
+import { pct } from "@/lib/alerts";
+import { ResultBadge } from "../ResultBadge";
 import { SmartLink } from "../SmartLink";
 import { ArrowRight, Layers, Shield } from "../Icons";
 import { Reveal } from "../Reveal";
@@ -50,22 +52,20 @@ function TrackRecordPreview({ alerts }: { alerts: AlertRow[] }) {
     <div className="mt-6 overflow-x-auto rounded-xl border border-line">
       <table className="num w-full text-[13.5px]">
         <thead className="border-b border-line bg-bg/50 text-[11px] uppercase tracking-[0.12em] text-faint">
-          <tr><th className="px-4 py-2.5 text-left font-medium">Time (ET)</th><th className="px-4 py-2.5 text-left font-medium">Ticker</th><th className="px-4 py-2.5 text-right font-medium">Alert</th><th className="px-4 py-2.5 text-right font-medium">High after</th></tr>
+          <tr><th className="px-4 py-2.5 text-left font-medium">Time (ET)</th><th className="px-4 py-2.5 text-left font-medium">Ticker</th><th className="px-4 py-2.5 text-right font-medium">Close</th><th className="px-4 py-2.5 text-right font-medium">Result</th></tr>
         </thead>
         <tbody className="divide-y divide-line">
           {alerts.map((a) => {
-            const pct = a.highAfter != null ? ((a.highAfter - a.alertPrice) / a.alertPrice) * 100 : null;
+            const p = pct(a.alertPrice, a.closeAfter);
             return (
               <tr key={a.id}>
-                <td className="whitespace-nowrap px-4 py-3 text-muted">{formatET(a.alertedAt)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-muted">{new Date(a.alertedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })}</td>
                 <td className="px-4 py-3 font-mono font-semibold">
                   ${a.ticker}
                   {a.sponsored && <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wider text-muted" title={a.sponsorComp ?? undefined}>Sponsored</span>}
                 </td>
-                <td className="px-4 py-3 text-right">{formatPrice(a.alertPrice)}</td>
-                <td className={`px-4 py-3 text-right font-medium ${pct == null ? "text-muted" : pct >= 0 ? "text-brand" : "text-down"}`}>
-                  {formatPrice(a.highAfter)} <span className="text-[12px]">{formatPercent(pct)}</span>
-                </td>
+                <td className={`px-4 py-3 text-right ${p == null ? "text-faint" : p > 0 ? "text-brand" : p < 0 ? "text-down" : "text-muted"}`}>{formatPercent(p)}</td>
+                <td className="px-4 py-3 text-right"><ResultBadge result={a.result} /></td>
               </tr>
             );
           })}

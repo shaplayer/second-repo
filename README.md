@@ -75,19 +75,32 @@ server {
 The search box opens a ticker page for `$ABCD` or one short word (`AAPL`, `tsla`), and searches headlines for anything else.
 "Load more" pages through the database (25 items per page).
 
-## SMS text alerts (Twilio)
+## SMS text alerts (any provider)
 
-Sign-up is live on every form (Email / Text tabs). A text sign-up requires the unchecked consent box. The exact
-consent wording, time, IP and browser are stored with the number (`lib/sms-consent.ts`), and a welcome text goes out right away.
+Sign-up is live on every form (Email / Text tabs). A text sign-up requires the unchecked consent box. The exact consent
+wording, time, IP and browser are stored with the number (`lib/sms-consent.ts`), and a welcome text is sent right away.
 
-1. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` (or `TWILIO_FROM_NUMBER`) to `.env`, then restart.
-2. In Twilio, set the number's / Messaging Service's **incoming message webhook** to `POST https://bigstocks.com/api/sms/inbound`
-   (requests are verified with your auth token, and `NEXT_PUBLIC_SITE_URL` must match the public URL). STOP / START replies are recorded in `subscribers`.
-3. **Carrier registration is required before sending in volume:** register an A2P 10DLC brand + campaign, or verify a toll-free number,
-   in the Twilio console. Use `bigstocks.com/sms-terms` as the terms link. Carriers also require a privacy policy that says mobile numbers aren't shared for marketing.
-4. Send an alert to everyone opted in (dry run first, then add `--send`):
-   `npm run sms:broadcast -- "NWBT pre-market alert: ..."`. It skips anyone who replied STOP and adds "Reply STOP to opt out".
-   Sponsored alerts must include the compensation disclosure in the text.
+Sending is provider-neutral (`lib/sms/`). Choose with `SMS_PROVIDER`:
+
+| `SMS_PROVIDER` | What happens |
+|---|---|
+| `console` (default) | Nothing is sent; texts are logged. Safe until a vendor is chosen. |
+| `webhook` | Each text is POSTed to **your own service** (any vendor): `POST $SMS_WEBHOOK_URL`, `Authorization: Bearer $SMS_WEBHOOK_SECRET`, body `{"to":"+15555550123","body":"..."}`. |
+| `twilio` | Built-in example adapter (`lib/sms/providers/twilio.ts`). |
+
+**Adding a vendor** (Telnyx, Plivo, Vonage, Bandwidth…): copy `lib/sms/providers/twilio.ts`, implement the `SmsProvider`
+interface in `lib/sms/types.ts` (`configured`, `send`, optional `parseInbound`), and register it in `lib/sms/index.ts`.
+
+**Opt-outs:** point the vendor's inbound-message webhook (or your service) at `POST https://bigstocks.com/api/sms/inbound`.
+The active provider authenticates and parses it. STOP / START replies are recorded in `subscribers`.
+With `webhook`, send JSON `{"from":"+15555550123","body":"STOP"}` with the same Bearer secret.
+
+**Broadcast** an alert to everyone opted in (dry run first, then add `--send`):
+`npm run sms:broadcast -- "NWBT pre-market alert: ..."`. It skips anyone who replied STOP and adds "Reply STOP to opt out".
+Sponsored alerts must include the compensation disclosure in the text.
+
+**Before sending in volume:** US carriers require registration (A2P 10DLC or a verified toll-free number) with whichever
+vendor you use, plus a privacy policy stating mobile numbers aren't shared for marketing. Terms link: `bigstocks.com/sms-terms`.
 
 ## Advertise page (`/advertise`)
 
@@ -97,11 +110,30 @@ consent wording, time, IP and browser are stored with the number (`lib/sms-conse
   `SELECT created_at, company, ticker, email, phone, package, message FROM inquiries WHERE handled_at IS NULL ORDER BY created_at DESC;`
   (Email notifications aren't wired up yet; that needs an email provider.)
 
-## Track record
+## Track record (`/track-record`)
 
-The homepage shows the latest rows of the `alerts` table, wins and losses. Until rows exist it says
-"launching soon" (it never shows made-up numbers). Sponsored alerts **must** have `sponsor_comp`
-(the database enforces it), and they render with a "Sponsored" label (SEC §17(b)).
+Public, permanent record of every alert: stats (win rate, average move to close and to high), a results strip,
+filters (organic / sponsored, wins / losses, ticker), methodology, and a full CSV download (`/api/alerts/export`).
+It shows real rows only; until the first alert is logged it says "launching soon".
+
+**Permanent by design:** the database blocks deleting alerts and blocks changing ticker, time, price or sponsorship
+after insert. Only the outcome (`high_after`, `close_after`, `result`, `notes`) can be filled in later.
+
+Your alert system logs alerts through the API (set `ALERTS_API_KEY`, 16+ chars):
+
+```bash
+# When an alert is sent
+curl -X POST https://bigstocks.com/api/alerts -H "Authorization: Bearer $ALERTS_API_KEY" -H "Content-Type: application/json" \
+  -d '{"ticker":"ABCD","alert_price":2.15,"alerted_at":"2026-11-05T12:58:00Z","sponsored":false}'
+# -> {"id":"123"}
+
+# After the close
+curl -X PATCH https://bigstocks.com/api/alerts/123 -H "Authorization: Bearer $ALERTS_API_KEY" -H "Content-Type: application/json" \
+  -d '{"high_after":2.71,"close_after":2.40}'
+# result is computed from the close (win > alert price, loss <, flat =) unless you send "result"
+```
+
+Sponsored alerts must include `"sponsor_comp"` (e.g. `"BigStocks received $47,000 from the issuer"`); the API and the database reject them without it (SEC §17(b)).
 
 ## Checks
 
