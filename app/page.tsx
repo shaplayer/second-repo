@@ -17,8 +17,8 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const [tape, feed, alerts] = await Promise.all([
-    getFeed({ limit: 30 }).catch((): FeedResponse => ({ items: [], mode: "live" })),
-    getFeed({ limit: 8 }).catch((): FeedResponse => ({ items: [], mode: "live" })),
+    getFeed({ limit: 30 }).catch((): FeedResponse => ({ items: [], mode: "live", nextBefore: null })),
+    getFeed({ limit: 8 }).catch((): FeedResponse => ({ items: [], mode: "live", nextBefore: null })),
     recentAlerts(5),
   ]);
 

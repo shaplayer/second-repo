@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import type { FeedItem, FeedResponse } from "@/lib/feeds/types";
+import type { FeedResponse } from "@/lib/feeds/types";
 import { links } from "@/lib/site";
 import { SmartLink } from "./SmartLink";
-import { TimeAgo } from "./TimeAgo";
-import { ArrowRight, ArrowUpRight, Doc, Megaphone, Search } from "./Icons";
+import { FeedRow } from "./FeedRow";
+import { ArrowRight, Search } from "./Icons";
 
 type Tab = "all" | "press" | "filing";
 const TABS: { id: Tab; label: string }[] = [
@@ -12,34 +12,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "press", label: "Press releases" },
   { id: "filing", label: "SEC filings" },
 ];
-
-function Row({ item }: { item: FeedItem }) {
-  const isFiling = item.kind === "filing";
-  return (
-    <li>
-      <a href={item.url} target="_blank" rel="noopener noreferrer"
-        className="group grid grid-cols-[auto_1fr_auto] items-start gap-4 px-5 py-4 transition-colors hover:bg-white/[0.025] sm:px-6">
-        <span className="num mt-0.5 inline-flex h-7 min-w-[64px] items-center justify-center rounded-lg border border-line-strong bg-bg px-2 font-mono text-[12.5px] font-semibold tracking-wide text-ink">
-          {item.ticker ?? "-"}
-        </span>
-        <span className="min-w-0">
-          <span className="line-clamp-2 text-[15px] leading-snug text-ink transition-colors group-hover:text-white">{item.title}</span>
-          <span className="mt-1.5 flex flex-wrap items-center gap-x-2 text-[12.5px] text-faint">
-            <span className={`inline-flex items-center gap-1 ${isFiling ? "text-[#7fb8ff]" : "text-brand"}`}>
-              {isFiling ? <Doc className="h-3.5 w-3.5" /> : <Megaphone className="h-3.5 w-3.5" />}
-              {isFiling ? item.formType : "Press release"}
-            </span>
-            <span aria-hidden="true" className="hidden sm:inline">·</span>
-            <span className="hidden sm:inline">{item.source}</span>
-            <span aria-hidden="true">·</span>
-            <TimeAgo iso={item.publishedAt} />
-          </span>
-        </span>
-        <ArrowUpRight className="mt-1 h-4 w-4 text-faint transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand" />
-      </a>
-    </li>
-  );
-}
 
 export function FeedSection({ initial }: { initial: FeedResponse }) {
   const [tab, setTab] = useState<Tab>("all");
@@ -89,6 +61,12 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
             {query && <button type="button" onClick={() => setQuery("")} className="text-[12px] text-faint hover:text-ink">Clear</button>}
           </form>
 
+          {ticker && /^[A-Z]{1,5}(\.[A-Z])?$/.test(ticker) && (
+            <SmartLink href={`/news/${ticker}`} className="mt-3 inline-flex items-center gap-1.5 pl-4 text-[13.5px] text-brand hover:underline">
+              Open the full ${ticker} page <ArrowRight className="h-3.5 w-3.5" />
+            </SmartLink>
+          )}
+
           <div className="mt-8 hidden gap-3 text-[13px] lg:flex">
             <SmartLink href={links.news} className="btn-ghost">All news <ArrowRight /></SmartLink>
             <SmartLink href={links.filings} className="btn-ghost">All filings <ArrowRight /></SmartLink>
@@ -121,7 +99,7 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
               ))}
             </ul>
           ) : data.items.length ? (
-            <ul className="divide-y divide-line">{data.items.map((it) => <Row key={it.id} item={it} />)}</ul>
+            <ul className="divide-y divide-line">{data.items.map((it) => <FeedRow key={it.id} item={it} />)}</ul>
           ) : (
             <div className="px-6 py-16 text-center">
               <p className="font-medium">{ticker ? `Nothing found for ${ticker} yet.` : "The feed is warming up."}</p>

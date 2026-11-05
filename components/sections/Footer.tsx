@@ -5,7 +5,7 @@ import { Wordmark } from "../Wordmark";
 const COLS = [
   { title: "Product", items: [["Pre-market alerts", links.alerts], ["Level 2 Streaming", links.level2], ["Track record", links.trackRecord]] },
   { title: "Research", items: [["News", links.news], ["SEC filings", links.filings]] },
-  { title: "Company", items: [["Advertise", links.advertise], ["Contact", `${links.advertise}#contact`]] },
+  { title: "Company", items: [["Advertise", links.advertise], ["Contact", `${links.advertise}#contact`], ["SMS terms", "/sms-terms"]] },
 ] as const;
 
 export function Footer() {

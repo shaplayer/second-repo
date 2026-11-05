@@ -1,6 +1,6 @@
 # BigStocks.com
 
-Homepage for BigStocks: free pre-market stock alerts, a live press release + SEC filings feed,
+Website for BigStocks: free pre-market stock alerts by email and SMS, live press release + SEC filings pages,
 Level 2 link, public track record preview and an Advertise teaser for sponsors.
 Plan: [`docs/HOMEPAGE_PLAN.md`](docs/HOMEPAGE_PLAN.md).
 
@@ -63,6 +63,31 @@ server {
   }
 }
 ```
+
+## News & filings pages
+
+| Page | What it shows |
+|---|---|
+| `/news` | Every public-company press release, newest first, grouped by day. `?q=` searches headlines. |
+| `/filings` | Latest SEC filings with form-type filters (`?form=8-K`, `10-Q`, `10-K`, `S-1`, `S-3`, `6-K`, `424B4`, `13D`). |
+| `/news/ABCD` | Everything for one ticker: its press releases plus its full recent SEC filing history. Share this link with clients. |
+
+The search box opens a ticker page for `$ABCD` or one short word (`AAPL`, `tsla`), and searches headlines for anything else.
+"Load more" pages through the database (25 items per page).
+
+## SMS text alerts (Twilio)
+
+Sign-up is live on every form (Email / Text tabs). A text sign-up requires the unchecked consent box. The exact
+consent wording, time, IP and browser are stored with the number (`lib/sms-consent.ts`), and a welcome text goes out right away.
+
+1. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` and `TWILIO_MESSAGING_SERVICE_SID` (or `TWILIO_FROM_NUMBER`) to `.env`, then restart.
+2. In Twilio, set the number's / Messaging Service's **incoming message webhook** to `POST https://bigstocks.com/api/sms/inbound`
+   (requests are verified with your auth token, and `NEXT_PUBLIC_SITE_URL` must match the public URL). STOP / START replies are recorded in `subscribers`.
+3. **Carrier registration is required before sending in volume:** register an A2P 10DLC brand + campaign, or verify a toll-free number,
+   in the Twilio console. Use `bigstocks.com/sms-terms` as the terms link. Carriers also require a privacy policy that says mobile numbers aren't shared for marketing.
+4. Send an alert to everyone opted in (dry run first, then add `--send`):
+   `npm run sms:broadcast -- "NWBT pre-market alert: ..."`. It skips anyone who replied STOP and adds "Reply STOP to opt out".
+   Sponsored alerts must include the compensation disclosure in the text.
 
 ## Advertise page (`/advertise`)
 

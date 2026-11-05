@@ -16,4 +16,6 @@ export type FeedResponse = {
   items: FeedItem[];
   mode: "db" | "live" | "sample";
   stale?: boolean;
+  /** Pass back as `before` to load the next page; null when there are no more. */
+  nextBefore: string | null;
 };

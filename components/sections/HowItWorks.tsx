@@ -4,7 +4,7 @@ import { Reveal } from "../Reveal";
 const STEPS = [
   { n: "01", icon: Radar, title: "Our scanners watch the market", body: "In-house scanners and screeners, months in the making, sweep the market for volume, momentum and news catalysts." },
   { n: "02", icon: Bolt, title: "A stock catches our radar", body: "When a setup meets our criteria, it becomes an alert, timestamped and logged to our public track record." },
-  { n: "03", icon: Inbox, title: "You get it first", body: "The alert hits your inbox before the opening bell. Free by email today, with SMS text alerts coming soon." },
+  { n: "03", icon: Inbox, title: "You get it first", body: "The alert hits your inbox before the opening bell. By email or text message, free." },
 ];
 
 export function HowItWorks() {
