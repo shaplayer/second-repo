@@ -108,7 +108,20 @@ vendor you use, plus a privacy policy stating mobile numbers aren't shared for m
 - Audience numbers (125,000 subscribers, 1M+ daily impressions, 5,000+ daily clicks): `lib/site.ts`.
 - "Request a campaign" form saves to the `inquiries` table. See new requests with:
   `SELECT created_at, company, ticker, email, phone, package, message FROM inquiries WHERE handled_at IS NULL ORDER BY created_at DESC;`
-  (Email notifications aren't wired up yet; that needs an email provider.)
+- **Email notification:** every request is emailed to `INQUIRY_NOTIFY_TO` (comma-separated). Reply-To is the company's
+  address, so hitting Reply answers them directly. If sending fails, the request is still saved, and the ingest worker
+  re-sends missed notifications (last 3 days) on every pass. `notified_at` shows what was delivered.
+
+### Email setup (any provider)
+
+| `EMAIL_PROVIDER` | What happens |
+|---|---|
+| `console` (default) | Logs the email instead of sending. |
+| `smtp` | Any SMTP service: Google Workspace/Gmail, Microsoft 365, Amazon SES, SendGrid, Postmark, Mailgun… Set `SMTP_HOST`, `SMTP_PORT` (587 or 465), `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`. |
+| `webhook` | POSTs each email as JSON to your own service: `EMAIL_WEBHOOK_URL` + `EMAIL_WEBHOOK_SECRET` (Bearer). |
+
+New vendors: implement `EmailProvider` (`lib/email/types.ts`) and register it in `lib/email/index.ts`.
+Send from an address on your own domain, with SPF/DKIM set up at your email provider, so notifications don't land in spam.
 
 ## Track record (`/track-record`)
 

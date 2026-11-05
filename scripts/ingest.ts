@@ -6,10 +6,15 @@
 import { fetchLatestFilings } from "../lib/feeds/edgar";
 import { fetchPressReleases } from "../lib/feeds/rss";
 import { saveItems } from "../lib/feeds/index";
+import { retryInquiryNotifications } from "../lib/email/retry";
 
 const INTERVAL_MS = Number(process.env.INGEST_INTERVAL_SEC ?? 180) * 1000;
 
 async function pass() {
+  // Re-send any Advertise-form notifications that failed (never blocks the feed).
+  const r = await retryInquiryNotifications().catch((e) => { console.error("[inquiry-retry]", e?.message); return { sent: 0, failed: 0 }; });
+  if (r.sent || r.failed) console.log(`[inquiry-retry] re-sent ${r.sent}, failed ${r.failed}`);
+
   const started = Date.now();
   const [filings, press] = await Promise.all([fetchLatestFilings(), fetchPressReleases()]);
   const bySource = new Map<string, number>();

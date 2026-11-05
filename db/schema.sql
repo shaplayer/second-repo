@@ -89,3 +89,6 @@ DROP TRIGGER IF EXISTS alerts_guard_row ON alerts;
 CREATE TRIGGER alerts_guard_row BEFORE UPDATE OR DELETE ON alerts FOR EACH ROW EXECUTE FUNCTION alerts_guard();
 DROP TRIGGER IF EXISTS alerts_guard_truncate ON alerts;
 CREATE TRIGGER alerts_guard_truncate BEFORE TRUNCATE ON alerts FOR EACH STATEMENT EXECUTE FUNCTION alerts_guard();
+
+-- When the team was emailed about an inquiry (NULL = notification not sent / failed)
+ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
