@@ -19,6 +19,8 @@ export const isExternal = (href: string) => /^https?:\/\//.test(href);
 /** Only verified numbers go here. Sponsors will check them. */
 export const audience = {
   emailSubscribers: 125_000,
+  dailyImpressions: 1_000_000,
+  dailyClicks: 5_000,
 };
 
 /**

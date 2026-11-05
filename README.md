@@ -64,6 +64,14 @@ server {
 }
 ```
 
+## Advertise page (`/advertise`)
+
+- Packages, prices and deliverables: **`lib/advertise.ts`** (used by `/advertise` and the homepage teaser).
+- Audience numbers (125,000 subscribers, 1M+ daily impressions, 5,000+ daily clicks): `lib/site.ts`.
+- "Request a campaign" form saves to the `inquiries` table. See new requests with:
+  `SELECT created_at, company, ticker, email, phone, package, message FROM inquiries WHERE handled_at IS NULL ORDER BY created_at DESC;`
+  (Email notifications aren't wired up yet; that needs an email provider.)
+
 ## Track record
 
 The homepage shows the latest rows of the `alerts` table, wins and losses. Until rows exist it says

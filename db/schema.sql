@@ -46,3 +46,19 @@ CREATE TABLE IF NOT EXISTS alerts (
   CHECK (NOT sponsored OR sponsor_comp IS NOT NULL)
 );
 CREATE INDEX IF NOT EXISTS alerts_alerted_idx ON alerts (alerted_at DESC);
+
+-- Sponsor inquiries from /advertise
+CREATE TABLE IF NOT EXISTS inquiries (
+  id            BIGSERIAL PRIMARY KEY,
+  name          TEXT NOT NULL,
+  company       TEXT NOT NULL,
+  ticker        TEXT,
+  email         TEXT NOT NULL,
+  phone         TEXT,
+  package       TEXT,
+  message       TEXT,
+  ip            TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  handled_at    TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS inquiries_created_idx ON inquiries (created_at DESC);

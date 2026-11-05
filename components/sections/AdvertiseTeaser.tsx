@@ -1,13 +1,9 @@
 import { audience, links } from "@/lib/site";
+import { PACKAGES, formatUSD } from "@/lib/advertise";
+import { compact } from "@/lib/format";
 import { SmartLink } from "../SmartLink";
 import { ArrowRight } from "../Icons";
 import { Reveal } from "../Reveal";
-
-const PACKAGES = [
-  { name: "Sponsored Alert", body: "Your company featured in a pre-market alert to our full subscriber list, clearly labeled as sponsored." },
-  { name: "Featured News", body: "Your press release pinned at the top of our News & Filings feed, where traders look first." },
-  { name: "Full Campaign", body: "A multi-week mix of alerts, featured news and site placement, with reporting at the end." },
-];
 
 export function AdvertiseTeaser() {
   return (
@@ -24,8 +20,9 @@ export function AdvertiseTeaser() {
               <span className="num text-gradient">{audience.emailSubscribers.toLocaleString("en-US")}</span> traders.
             </h2>
             <p className="mt-5 max-w-lg text-[16px] leading-relaxed text-muted">
-              More visibility, more exposure, and investors who actually see your announcements. Every sponsored
-              placement is disclosed, so your audience trusts what it reads.
+              <span className="num text-ink">{compact(audience.dailyImpressions)}+</span> impressions and{" "}
+              <span className="num text-ink">{audience.dailyClicks.toLocaleString("en-US")}+</span> clicks every day. More visibility and
+              more exposure for your announcements, with every sponsored placement disclosed so investors trust what they read.
             </p>
             <div className="mt-9 flex flex-wrap gap-3">
               <SmartLink href={links.advertise} className="btn-primary">See packages &amp; audience <ArrowRight /></SmartLink>
@@ -35,15 +32,18 @@ export function AdvertiseTeaser() {
 
           <ul className="grid gap-3">
             {PACKAGES.map((p, i) => (
-              <li key={p.name}>
+              <li key={p.id}>
                 <Reveal delay={i * 100}>
-                  <SmartLink href={links.advertise}
-                    className="group flex items-start justify-between gap-6 rounded-2xl border border-line bg-bg/60 p-5 backdrop-blur transition-colors hover:border-brand/40">
-                    <span>
+                  <SmartLink href={`${links.advertise}?package=${p.id}#contact`}
+                    className={`group flex items-start justify-between gap-6 rounded-2xl border bg-bg/60 p-5 backdrop-blur transition-colors hover:border-brand/40 ${p.featured ? "border-brand/30" : "border-line"}`}>
+                    <span className="min-w-0">
                       <span className="block text-[16px] font-semibold">{p.name}</span>
-                      <span className="mt-1 block text-[14px] leading-relaxed text-muted">{p.body}</span>
+                      <span className="mt-1 block text-[14px] leading-relaxed text-muted">{p.summary}</span>
                     </span>
-                    <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-faint transition-all group-hover:translate-x-0.5 group-hover:text-brand" />
+                    <span className="shrink-0 text-right">
+                      <span className="num block text-[18px] font-semibold">{formatUSD(p.price)}</span>
+                      <span className="block text-[12px] text-faint">{p.cadence}</span>
+                    </span>
                   </SmartLink>
                 </Reveal>
               </li>
