@@ -15,7 +15,7 @@ Ad packages are not on the homepage; `/advertise` is linked from the footer only
 **Next pick:** countdown to the 8:00–9:30 AM ET pick window on trading days (`components/sections/NextPick.tsx`,
 `lib/schedule.ts`). Add next year's NYSE holidays to `lib/schedule.ts` each December.
 
-**Sign-up box** (`components/AlertForm.tsx`): email and mobile in one box; text is optional but marked Recommended. The same form is in the
+**Sign-up box** (`components/AlertForm.tsx`): email and phone in one box; the phone is optional, tagged "Fastest". The same form is in the
 **bell pop-up** (`components/AlertsDialog.tsx`), which opens from the bell in the top menu, next to every feed, and on
 each feed row. With a ticker it offers that company's press releases & SEC filings plus free stock picks (both checked),
 using one combined SMS consent (`smsCombinedConsentText` in `lib/sms-consent.ts`, stored with each sign-up).

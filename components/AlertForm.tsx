@@ -134,16 +134,16 @@ export function AlertForm({
         </div>
         <div className="mx-4 h-px bg-line" />
         <div className={row}>
-          <Phone className="h-4 w-4 shrink-0 text-brand" />
+          <Phone className="h-4 w-4 shrink-0 text-faint" />
           <span className="num text-[15px] text-faint" aria-hidden="true">+1</span>
-          <label htmlFor={`${id}-phone`} className="sr-only">Mobile number for text alerts (US, recommended)</label>
-          <input id={`${id}-phone`} type="tel" autoComplete="tel-national" inputMode="tel" placeholder="Mobile for text alerts"
+          <label htmlFor={`${id}-phone`} className="sr-only">Phone number for text alerts (optional)</label>
+          <input id={`${id}-phone`} type="tel" autoComplete="tel-national" inputMode="tel" placeholder="Phone number (optional)"
             value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} className={`num ${input}`} />
-          <span className="shrink-0 rounded-full bg-brand/12 px-2.5 py-1 text-[11px] font-semibold text-brand">Recommended</span>
+          <span className="shrink-0 rounded-full border border-brand/30 px-2 py-0.5 text-[11px] font-medium text-brand/90">Fastest</span>
         </div>
       </div>
-      <p className="mt-2 px-1 text-[12.5px] text-muted">
-        <span className="text-ink">Texts land in seconds,</span> straight to your phone. It&apos;s the fastest way to catch a pick.
+      <p className="mt-2 px-1 text-[12.5px] text-faint">
+        Texts usually arrive before the email. Only alerts, and you can reply STOP anytime.
       </p>
 
       {hasPhone && (

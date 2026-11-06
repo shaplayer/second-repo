@@ -15,13 +15,6 @@ const TABS: { id: Tab; icon: typeof TrendUp; title: string; line: string; detail
     detail: "8-Ks, 10-Qs, S-1s and insider filings, in plain English, a few seconds after they post." },
 ];
 
-const BENEFITS = [
-  ["Save time", "One place instead of five finance sites."],
-  ["Hear it first", "Seconds after it posts, not hours."],
-  ["Only your stocks", "Follow the tickers you own. Skip the rest."],
-  ["Free to start", "Upgrade to Premium when you want every pick."],
-] as const;
-
 function preview(tab: Tab, items: FeedItem[]) {
   const press = items.find((i) => i.kind === "press" && i.ticker);
   const filing = items.find((i) => i.kind === "filing" && i.ticker);
@@ -111,14 +104,15 @@ export function WhatYouGet({ items = [] }: { items?: FeedItem[] }) {
                 <span className="text-[13px] text-muted">Free picks several times a week.</span>
               </div>
             ) : (
-              <form onSubmit={follow} className="flex flex-wrap items-center gap-3">
-                <label htmlFor="get-ticker" className="text-[14px] text-muted">Own a stock?</label>
-                <div className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-full border border-line-strong bg-surface pl-4 pr-1.5 focus-within:border-brand/60">
-                  <input id="get-ticker" value={ticker} onChange={(e) => setTicker(e.target.value.slice(0, 8))} placeholder={p.ticker || "AAPL"}
+              <form onSubmit={follow}>
+                <label htmlFor="get-ticker" className="block text-[15px] font-semibold">Follow the stocks you own</label>
+                <p className="mt-0.5 text-[13.5px] text-muted">Don&apos;t miss a press release or SEC filing from a company you hold.</p>
+                <div className="mt-3 flex h-11 items-center gap-2 rounded-full border border-line-strong bg-surface pl-4 pr-1.5 focus-within:border-brand/60">
+                  <input id="get-ticker" value={ticker} onChange={(e) => setTicker(e.target.value.slice(0, 8))} placeholder="Enter a ticker, e.g. AAPL"
                     autoComplete="off" spellCheck={false}
                     className="min-w-0 flex-1 bg-transparent font-mono text-[14px] uppercase text-ink placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:outline-none" />
-                  <button type="submit" className="bell-halo relative inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-brand px-3.5 text-[13px] font-semibold text-[#04130b]">
-                    <Bell className="h-3.5 w-3.5" /> Get its news
+                  <button type="submit" className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-brand px-3.5 text-[13px] font-semibold text-[#04130b] transition-colors hover:bg-[#2bf08d]">
+                    <Bell className="h-3.5 w-3.5" /> Follow
                   </button>
                 </div>
               </form>
@@ -127,26 +121,18 @@ export function WhatYouGet({ items = [] }: { items?: FeedItem[] }) {
         </div>
       </div>
 
-      {/* Benefits + delivery choice */}
-      <div className="mt-5 grid gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
-        {BENEFITS.map(([h, b]) => (
-          <div key={h} className="bg-surface p-5">
-            <p className="text-[15px] font-semibold">{h}</p>
-            <p className="mt-1 text-[13.5px] leading-relaxed text-muted">{b}</p>
-          </div>
-        ))}
-      </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-[14px] text-muted">
+      {/* Delivery choice */}
+      <div className="mt-6 flex flex-wrap items-center gap-2 text-[14px] text-muted">
         <span className="mr-1">Get it by</span>
         <button type="button" onClick={() => openAlerts({ source: "what-you-get-text" })}
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-brand/40 bg-brand/10 px-3.5 font-medium text-brand transition-colors hover:bg-brand/20">
-          <Phone className="h-4 w-4" /> Text <span className="text-[11px] font-semibold opacity-80">Recommended</span>
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-line-strong px-3.5 font-medium text-ink transition-colors hover:border-brand/40 hover:bg-white/[0.04]">
+          <Phone className="h-4 w-4 text-brand" /> Text
         </button>
         <button type="button" onClick={() => openAlerts({ source: "what-you-get-email" })}
-          className="inline-flex h-9 items-center gap-2 rounded-full border border-line-strong px-3.5 font-medium text-ink transition-colors hover:bg-white/[0.04]">
+          className="inline-flex h-9 items-center gap-2 rounded-full border border-line-strong px-3.5 font-medium text-ink transition-colors hover:border-brand/40 hover:bg-white/[0.04]">
           <Mail className="h-4 w-4 text-brand" /> Email
         </button>
-        <span>or both. Unsubscribe anytime.</span>
+        <span>or both. No spam, and you can unsubscribe anytime.</span>
       </div>
     </section>
   );
