@@ -6,6 +6,7 @@ import { SignupForm } from "@/components/SignupForm";
 import { ResultBadge } from "@/components/ResultBadge";
 import { ResultsStrip } from "@/components/ResultsStrip";
 import { Search } from "@/components/Icons";
+import { TickerCell } from "@/components/TierLabel";
 import { alertStats, listAlerts, pct, resultSequence, type AlertFilter, type AlertResult, type AlertRow } from "@/lib/alerts";
 import { formatET, formatPercent, formatPrice } from "@/lib/format";
 import { normalizeTicker } from "@/lib/feeds/tickers";
@@ -13,7 +14,7 @@ import { normalizeTicker } from "@/lib/feeds/tickers";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "Public Track Record: Every Alert, Wins and Losses | BigStocks",
-  description: "Every BigStocks stock alert, timestamped when sent, with wins and losses. Sponsored alerts labeled. Download the full record as CSV.",
+  description: "Every BigStocks stock alert, timestamped when sent, with wins and losses. Sponsored and Premium alerts labeled.",
 };
 
 const PAGE_SIZE = 50;
@@ -48,7 +49,7 @@ const Move = ({ from, to }: { from: number; to: number | null }) => {
 };
 
 function Sponsored({ a }: { a: AlertRow }) {
-  if (!a.sponsored) return null;
+  if (!a.sponsored || a.hidden) return null;
   return (
     <span className="mt-1 block text-[11.5px] leading-snug text-faint">
       <span className="mr-1.5 rounded bg-white/[0.07] px-1.5 py-px font-semibold uppercase tracking-wider text-muted">Sponsored</span>
@@ -96,7 +97,6 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
               and sponsored alerts are labeled with what we were paid. Check our math anytime.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <a href="/api/alerts/export" className="btn-ghost !h-11">Download full record (CSV)</a>
               <a href="#methodology" className="btn-ghost !h-11">How we measure</a>
             </div>
           </div>
@@ -169,10 +169,10 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
                           <tr key={a.id} id={`alert-${a.id}`} className="scroll-mt-28 align-top transition-colors target:bg-brand/[0.06] hover:bg-white/[0.02]">
                             <td className="num whitespace-nowrap px-6 py-3.5 text-muted">{formatET(a.alertedAt)}</td>
                             <td className="max-w-[340px] px-4 py-3.5">
-                              <Link href={`/news/${a.ticker}`} className="font-mono font-semibold hover:text-brand">${a.ticker}</Link>
+                              <TickerCell a={a} />
                               <Sponsored a={a} />
                             </td>
-                            <td className="num px-4 py-3.5 text-right">{formatPrice(a.alertPrice)}</td>
+                            <td className="num px-4 py-3.5 text-right">{a.hidden ? <span className="text-faint">-</span> : formatPrice(a.alertPrice)}</td>
                             <td className="px-4 py-3.5 text-right"><Move from={a.alertPrice} to={a.highAfter} /></td>
                             <td className="px-4 py-3.5 text-right"><Move from={a.alertPrice} to={a.closeAfter} /></td>
                             <td className="px-6 py-3.5 text-right"><ResultBadge result={a.result} /></td>
@@ -186,13 +186,13 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
                         <li key={a.id} id={`alert-${a.id}-m`} className="px-5 py-4">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <Link href={`/news/${a.ticker}`} className="font-mono text-[15px] font-semibold">${a.ticker}</Link>
+                              <span className="text-[15px]"><TickerCell a={a} /></span>
                               <p className="num mt-0.5 text-[12.5px] text-faint">{formatET(a.alertedAt)}</p>
                             </div>
                             <ResultBadge result={a.result} />
                           </div>
                           <dl className="mt-3 grid grid-cols-3 gap-2 text-[13px]">
-                            <div><dt className="text-[11px] uppercase tracking-wider text-faint">Alert</dt><dd className="num mt-0.5">{formatPrice(a.alertPrice)}</dd></div>
+                            <div><dt className="text-[11px] uppercase tracking-wider text-faint">Alert</dt><dd className="num mt-0.5">{a.hidden ? "-" : formatPrice(a.alertPrice)}</dd></div>
                             <div><dt className="text-[11px] uppercase tracking-wider text-faint">High</dt><dd className="mt-0.5"><Move from={a.alertPrice} to={a.highAfter} /></dd></div>
                             <div><dt className="text-[11px] uppercase tracking-wider text-faint">Close</dt><dd className="mt-0.5"><Move from={a.alertPrice} to={a.closeAfter} /></dd></div>
                           </dl>
@@ -228,13 +228,14 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
               <h2 id="method-title" className="mt-3 text-[24px] font-semibold tracking-tight md:text-[28px]">How we measure every alert</h2>
               <dl className="mt-6 divide-y divide-line text-[14.5px]">
                 {[
-                  ["Sent", "The time the alert went out to subscribers, in US Eastern time. Each record also stores when it was logged (in the CSV)."],
+                  ["Sent", "The time the alert went out to subscribers, in US Eastern time. It's stamped automatically the moment we hit send."],
                   ["Alert price", "The stock's price at the moment the alert was sent."],
                   ["High after", "The highest price the stock reached after the alert, during the same trading session."],
                   ["Close", "The official closing price on the alert day."],
                   ["Result", "Win if the close is above the alert price, loss if below, flat if equal. Open until the session closes."],
                   ["Sponsored", "Alerts we were paid for. Labeled with the compensation, included in every stat, and filterable so you can judge them separately."],
-                  ["Permanent", "Our database blocks deleting alerts and blocks changing the ticker, time, price or sponsorship after an alert is logged."],
+                  ["Premium", "Picks sent to Premium members. They appear here at 4:00 PM ET the same day, labeled Premium, and count in every stat."],
+                  ["Permanent", "Our database blocks deleting alerts and blocks changing the ticker, time, price, tier or sponsorship after an alert is logged."],
                 ].map(([t, d]) => (
                   <div key={t} className="grid gap-1 py-3.5 sm:grid-cols-[130px_1fr] sm:gap-6">
                     <dt className="font-semibold">{t}</dt>
@@ -250,8 +251,6 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
                 including your entire investment. &ldquo;High after&rdquo; shows the best price reached, which most traders won&apos;t capture.
                 Our alerts are information, not investment advice.
               </p>
-              <div className="mt-8 flex-1" />
-              <a href="/api/alerts/export" className="btn-ghost self-start">Download the raw data (CSV)</a>
             </div>
           </section>
         </div>

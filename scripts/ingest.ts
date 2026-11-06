@@ -9,6 +9,7 @@ import { fetchPressReleases } from "../lib/feeds/rss";
 import { saveItems } from "../lib/feeds/index";
 import { retryInquiryNotifications } from "../lib/email/retry";
 import { dispatchFollowNotifications } from "../lib/follow/notify";
+import { processBroadcasts } from "../lib/broadcast";
 
 const INTERVAL_MS = Number(process.env.INGEST_INTERVAL_SEC ?? 180) * 1000;
 // Newswires rate-limit readers that poll too often, so check them less often than SEC.
@@ -42,7 +43,15 @@ async function pass() {
 
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error("Set DATABASE_URL (in .env or the environment; see .env.example)");
-  if (process.argv.includes("--once")) { await pass(); process.exit(0); }
+  if (process.argv.includes("--once")) { await pass(); await processBroadcasts(); process.exit(0); }
+  // Alert sends: the site starts them immediately; this picks up any that were interrupted.
+  void (async () => {
+    for (;;) {
+      const n = await processBroadcasts().catch((e) => { console.error("[broadcast]", e?.message); return 0; });
+      if (n) console.log(`[broadcast] finished ${n} send(s)`);
+      await new Promise((r) => setTimeout(r, 15_000));
+    }
+  })();
   for (;;) {
     await pass().catch((e) => console.error("[ingest] failed:", e?.message ?? e));
     await new Promise((r) => setTimeout(r, INTERVAL_MS));

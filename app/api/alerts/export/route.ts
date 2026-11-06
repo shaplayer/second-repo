@@ -7,15 +7,19 @@ const esc = (v: unknown) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-/** Full public track record as CSV: anyone can check our math. */
+/**
+ * Track record as CSV, for the team (spreadsheets, audits). Not linked on the site.
+ * Premium picks still hidden (before 4 PM ET on their day) are left out.
+ */
 export async function GET() {
-  const head = ["id", "alerted_at_utc", "logged_at_utc", "ticker", "alert_price", "high_after", "high_pct", "close_after", "close_pct", "result", "sponsored", "sponsor_compensation"];
+  const head = ["id", "alerted_at_utc", "logged_at_utc", "ticker", "tier", "alert_price", "high_after", "high_pct", "close_after", "close_pct", "result", "sponsored", "sponsor_compensation"];
   const lines = [head.join(",")];
   for (let page = 1; ; page++) {
     const { rows } = await listAlerts({}, page, 1000);
     for (const a of rows) {
+      if (a.hidden) continue;
       lines.push([
-        a.id, a.alertedAt, a.loggedAt, a.ticker, a.alertPrice, a.highAfter, pct(a.alertPrice, a.highAfter)?.toFixed(2),
+        a.id, a.alertedAt, a.loggedAt, a.ticker, a.tier, a.alertPrice, a.highAfter, pct(a.alertPrice, a.highAfter)?.toFixed(2),
         a.closeAfter, pct(a.alertPrice, a.closeAfter)?.toFixed(2), a.result, a.sponsored, a.sponsorComp,
       ].map(esc).join(","));
     }

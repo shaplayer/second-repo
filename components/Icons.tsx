@@ -46,3 +46,12 @@ export const Mail = ({ className = "h-4 w-4" }: P) => (
 export const Bell = ({ className = "h-4 w-4" }: P) => (
   <svg viewBox="0 0 24 24" className={className} {...base} aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 4.5 1.5 6.5 2 7H4c.5-.5 2-2.5 2-7Z" /><path d="M10 19a2 2 0 0 0 4 0" /></svg>
 );
+export const Check = ({ className = "h-4 w-4" }: P) => (
+  <svg viewBox="0 0 24 24" className={className} {...base} strokeWidth={2.25} aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5" /></svg>
+);
+export const Plus = ({ className = "h-4 w-4" }: P) => (
+  <svg viewBox="0 0 24 24" className={className} {...base} strokeWidth={2.25} aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+);
+export const TrendUp = ({ className = "h-5 w-5" }: P) => (
+  <svg viewBox="0 0 24 24" className={className} {...base} aria-hidden="true"><path d="m3 17 6-6 4 4 8-8" /><path d="M15 7h6v6" /></svg>
+);
