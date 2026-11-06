@@ -1,0 +1,41 @@
+{
+  "name": "bigstocks-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "ingest": "tsx scripts/ingest.ts",
+    "ingest:once": "tsx scripts/ingest.ts --once",
+    "test": "tsx scripts/test-parsers.ts",
+    "sms:broadcast": "tsx scripts/sms-broadcast.ts",
+    "db:init": "tsx scripts/db-init.ts",
+    "feeds:check": "tsx scripts/feeds-check.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "5.2.8",
+    "cobe": "0.6.5",
+    "fast-xml-parser": "5.11.2",
+    "next": "15.5.28",
+    "nodemailer": "10.2.1",
+    "pg": "8.16.3",
+    "react": "19.2.9",
+    "react-dom": "19.2.9"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.18",
+    "@types/node": "22.18.0",
+    "@types/nodemailer": "7.0.11",
+    "@types/pg": "8.15.5",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "tailwindcss": "4.1.18",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  },
+  "overrides": {
+    "postcss": "8.5.29"
+  }
+}

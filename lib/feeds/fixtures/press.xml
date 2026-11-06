@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+<channel>
+<title>Sample newswire</title>
+<item>
+<title>Northwind Biotherapeutics Announces Positive Topline Phase 2 Results for NW-210 in Rare Liver Disease</title>
+<link>https://example.com/news/northwind-phase-2</link>
+<description>BOSTON, Nov. 04, 2026 (GLOBE NEWSWIRE) -- Northwind Biotherapeutics, Inc. (NASDAQ: NWBT), a clinical-stage company, today announced topline results&amp;#8230;</description>
+<pubDate>Wed, 04 Nov 2026 22:41:00 GMT</pubDate>
+</item>
+<item>
+<title>Halcyon Grid Systems Reports Record Q3 Revenue of $48.2 Million, Up 61% Year-Over-Year</title>
+<link>https://example.com/news/halcyon-q3</link>
+<description>AUSTIN, Texas, Nov. 4, 2026 /PRNewswire/ -- Halcyon Grid Systems Corp (NYSE: HGRD) today reported financial results for the third quarter.</description>
+<pubDate>Wed, 04 Nov 2026 22:25:00 GMT</pubDate>
+</item>
+<item>
+<title>Local bakery opens second location</title>
+<link>https://example.com/news/bakery</link>
+<description>A private company with no ticker. Should be filtered out.</description>
+<pubDate>Wed, 04 Nov 2026 22:00:00 GMT</pubDate>
+</item>
+<item>
+<title>Copperline Minerals Intersects 42.5 m of 1.8% Copper at Red Mesa Project</title>
+<link>https://example.com/news/copperline-red-mesa</link>
+<description>VANCOUVER, BC / ACCESS Newswire / November 4, 2026 / Copperline Minerals Ltd. (OTCQB: CPLMF) is pleased to report drill results.</description>
+<pubDate>Wed, 04 Nov 2026 21:40:00 GMT</pubDate>
+</item>
+<item>
+<title>Brightwater Payments Signs Multi-Year Processing Agreement with Top-10 U.S. Regional Bank</title>
+<link>https://example.com/news/brightwater-agreement</link>
+<description>NEW YORK--(BUSINESS WIRE)--Brightwater Payments, Inc. (Nasdaq: BWPY) today announced a definitive agreement.</description>
+<pubDate>Wed, 04 Nov 2026 20:52:00 GMT</pubDate>
+</item>
+<item>
+<title>Vantage Orbital Files Registration Statement for Proposed Initial Public Offering</title>
+<link>https://example.com/news/vantage-ipo</link>
+<description>DENVER, Nov. 4, 2026 /PRNewswire/ -- Vantage Orbital Inc. (NYSE American: VORB) announced today that it has publicly filed a registration statement.</description>
+<pubDate>Wed, 04 Nov 2026 20:15:00 GMT</pubDate>
+</item>
+<item>
+<title>Silverpeak Therapeutics to Present at Upcoming Healthcare Investor Conference</title>
+<link>https://example.com/news/silverpeak-conference</link>
+<description>SAN DIEGO, Nov. 04, 2026 (GLOBE NEWSWIRE) -- Silverpeak Therapeutics (NASDAQ: SLVP) will present at a healthcare conference.</description>
+<pubDate>Wed, 04 Nov 2026 19:30:00 GMT</pubDate>
+</item>
+</channel>
+</rss>

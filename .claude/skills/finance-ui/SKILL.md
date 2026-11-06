@@ -1,6 +1,6 @@
 ---
 name: finance-ui
-description: Layout, components, and number formatting for the Google Finance–style stock website (home page, ticker page, search, watchlist). Use whenever building or changing pages or UI components, or formatting prices, percentages, or large numbers.
+description: Layout, components, and number formatting for the BigStocks stock website (home page, ticker page, search, watchlist). Use whenever building or changing pages or UI components, or formatting prices, percentages, or large numbers.
 ---
 
 # Finance UI
@@ -26,11 +26,13 @@ Next.js (App Router) + TypeScript + Tailwind, unless the repo already uses somet
 - Missing values: show `-`, never `NaN`, `undefined`, or `0`.
 - Timestamps: exchange timezone with zone abbreviation (`4:00 PM EDT`); news uses relative time (`3 hours ago`).
 
-## Visual style
-- Clean, white background, lots of whitespace, one sans-serif font (e.g. Inter / Roboto), tabular numbers (`font-variant-numeric: tabular-nums`) everywhere a number appears.
-- Up = green, down = red, unchanged = gray; use the `--up`/`--down` CSS variables. Never rely on color alone: also show the sign or arrow.
-- Support dark mode via `prefers-color-scheme`.
-- Responsive: one column under 768 px, no horizontal page scroll.
+## Visual style (BigStocks brand: dark, premium, "view from orbit")
+- Dark only: near-black `--color-bg #07090a`, cards `--color-surface #0e1113` with 1px `--color-line` borders and 20px radius. White text, muted gray secondary. One brand green `--color-brand #12e27a` for CTAs, highlights and up moves; `--color-down #ff5a5f` for down moves/losses. Tokens live in `app/globals.css` (`@theme`), so use the Tailwind classes (`bg-surface`, `text-muted`, `text-brand`…), not raw hex.
+- Wide and zoomed-out: `.container-wide` (max 1360px), generous section spacing (96–128px), restrained type (H1 ≤ 56px, body 15–17px). Never billboard-huge.
+- Inter Variable (self-hosted via `@fontsource-variable/inter`), `tabular-nums` (`.num`) on every number. Tickers in mono.
+- Subtle motion only (marquee, fade-up `Reveal`, pulse dots); always respect `prefers-reduced-motion`.
+- Up = green, down = red, unchanged = gray. Never rely on color alone: also show the sign or arrow.
+- Responsive: one column under 768px, no horizontal page scroll.
 
 ## Required
 - Footer disclaimer: data may be delayed and is not investment advice; credit the data provider.
