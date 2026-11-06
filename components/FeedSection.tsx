@@ -55,12 +55,12 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
           </p>
 
           <form role="search" onSubmit={(e) => e.preventDefault()}
-            className="mt-8 flex h-12 max-w-md items-center gap-3 rounded-full border border-line-strong bg-surface px-4 focus-within:border-brand/60">
-            <Search className="h-4 w-4 text-faint" />
+            className="mt-8 flex h-16 max-w-md items-center gap-3 rounded-full border border-brand/40 bg-surface px-5 shadow-[0_0_0_4px_rgba(18,226,122,0.06)] focus-within:border-brand/70">
+            <Search className="h-5 w-5 text-brand" />
             <label htmlFor="ticker-search" className="sr-only">Search by ticker</label>
             <input id="ticker-search" value={query} onChange={(e) => setQuery(e.target.value.slice(0, 10))}
-              placeholder="Search a ticker, e.g. AAPL" autoComplete="off" spellCheck={false}
-              className="num min-w-0 flex-1 bg-transparent font-mono text-[14px] uppercase text-ink placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:outline-none" />
+              placeholder="Type a ticker, e.g. AAPL" autoComplete="off" spellCheck={false}
+              className="num min-w-0 flex-1 bg-transparent font-mono text-[17px] uppercase text-ink placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:outline-none" />
             {query && <button type="button" onClick={() => setQuery("")} className="text-[12px] text-faint hover:text-ink">Clear</button>}
           </form>
 

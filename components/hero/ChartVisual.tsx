@@ -4,14 +4,14 @@ import { BRAND, DOWN, rng, useCanvas } from "./useCanvas";
 
 type Candle = { o: number; h: number; l: number; c: number; v: number; tag?: string };
 
-// News that moves stocks. Each one lands on a breakout candle: the story of the product.
+// Catalysts. Each one lands on a breakout candle: the story of the product.
 const TAGS = ["8-K filed", "Earnings beat", "FDA approval", "Contract win", "Press release", "Guidance raised"];
 const PERIOD = 950; // ms per candle
 
 /**
  * Option C: a live candlestick chart that keeps climbing. Breakout candles are pinned
  * with the news that caused them (8-K, earnings, FDA...), so the chart says
- * "the news moves the stock, and we send you the news first". Illustrative, not real prices.
+ * "news breaks, the chart reacts, and we send you the news first". Illustrative, not real prices.
  */
 export function ChartVisual({ className = "" }: { className?: string }) {
   const st = useRef<{ candles: Candle[]; rand: () => number; phase: number; target: number; lo: number; hi: number; tagI: number; sinceTag: number } | null>(null);

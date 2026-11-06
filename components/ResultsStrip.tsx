@@ -29,9 +29,9 @@ export function ResultsStrip({ items }: { items: Item[] }) {
       <ol className="mt-5 flex flex-wrap gap-[3px]" aria-label="Alert results in order">
         {items.map((a) => (
           <li key={a.id}>
-            <a href={`#alert-${a.id}`} title={`${a.ticker} · ${formatET(a.alertedAt)} · ${RESULT_META[a.result].label}`}
+            <a href={`#alert-${a.id}`} title={`${a.ticker || "Premium pick"} · ${formatET(a.alertedAt)} · ${RESULT_META[a.result].label}`}
               className={`block h-6 w-3.5 rounded-[4px] transition-transform hover:scale-y-110 sm:w-4 ${FILL[a.result]}`}>
-              <span className="sr-only">{a.ticker} {formatET(a.alertedAt)}: {RESULT_META[a.result].label}</span>
+              <span className="sr-only">{a.ticker || "Premium pick"} {formatET(a.alertedAt)}: {RESULT_META[a.result].label}</span>
             </a>
           </li>
         ))}

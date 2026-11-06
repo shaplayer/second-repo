@@ -124,12 +124,9 @@
   .alerts-dialog[open] { animation: dialog-in 0.22s ease-out; }
   @keyframes dialog-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
 
-  /* Hero option A */
-  .pv-draw { stroke-dasharray: 2000; stroke-dashoffset: 2000; animation: pv-draw 2.4s ease-out 0.2s forwards; }
-  @keyframes pv-draw { to { stroke-dashoffset: 0; } }
-  .pv-note { transition: opacity 0.5s, transform 0.5s; transform-origin: top center; }
-  .pv-note:first-child { animation: pv-in 0.55s cubic-bezier(0.2, 0.9, 0.3, 1.2); }
-  @keyframes pv-in { from { opacity: 0; transform: translateY(-14px) scale(0.96); } }
+  /* What you get: preview bubbles pop in when you switch tabs. */
+  .get-bubble { animation: get-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.1); }
+  @keyframes get-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
 
   .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.7s ease, transform 0.7s ease; }
   .reveal.is-in { opacity: 1; transform: none; }

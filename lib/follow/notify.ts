@@ -8,7 +8,7 @@ const FRESH = "2 hours";
 const LOCK_ID = 74_219_001; // advisory lock: one dispatcher at a time across processes
 const SMS_RATE_PER_SEC = Number(process.env.SMS_RATE_PER_SEC ?? 10);
 
-type Follower = { id: string; channel: "email" | "sms"; token: string; email: string | null; phone: string | null };
+type Follower = { id: string; channel: "email" | "sms"; token: string; email: string | null; phone: string | null; on_list: boolean };
 
 /**
  * Tell followers of each ticker about new press releases, filings and BigStocks alerts.
@@ -30,7 +30,7 @@ export async function dispatchFollowNotifications(): Promise<{ tickers: number; 
       )).rows;
       const alerts = (await client.query(
         `SELECT id, ticker, alert_price, sponsored, sponsor_comp FROM alerts
-          WHERE notified_at IS NULL AND created_at > now() - interval '${FRESH}' ORDER BY alerted_at LIMIT 200`,
+          WHERE notified_at IS NULL AND tier = 'free' AND created_at > now() - interval '${FRESH}' ORDER BY alerted_at LIMIT 200`,
       )).rows;
       if (!news.length && !alerts.length) return out;
 
@@ -60,7 +60,8 @@ export async function dispatchFollowNotifications(): Promise<{ tickers: number; 
       const sms = smsProvider();
       for (const [ticker, g] of byTicker) {
         const followers: Follower[] = (await client.query(
-          `SELECT f.id, f.channel, f.token, s.email, s.phone FROM ticker_follows f JOIN subscribers s ON s.id = f.subscriber_id
+          `SELECT f.id, f.channel, f.token, s.email, s.phone, (s.general_alerts AND s.unsubscribed_at IS NULL) AS on_list
+             FROM ticker_follows f JOIN subscribers s ON s.id = f.subscriber_id
             WHERE f.ticker = $1 AND f.confirmed_at IS NOT NULL AND f.unsubscribed_at IS NULL
               AND (f.channel = 'email' OR s.unsubscribed_at IS NULL)`,
           [ticker],
@@ -71,6 +72,8 @@ export async function dispatchFollowNotifications(): Promise<{ tickers: number; 
         if (followers.length) out.tickers++;
         const smsBody = followSms(g.update);
         for (const f of followers) {
+          // Alert only (no news) and they're on the main list: they already got it from the alert send.
+          if (!g.update.news.length && f.on_list) continue;
           try {
             if (f.channel === "email" && f.email && mail.configured()) {
               await mail.send(followEmail(g.update, f.email, f.token));

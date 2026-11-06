@@ -2,19 +2,15 @@ import { alertTiming, plans } from "@/lib/site";
 
 const QA: [string, string][] = [
   ["What does BigStocks send me?",
-    "Stock alerts (our picks), plus press releases and SEC filings. Everything goes straight to your email, your phone by text, or both."],
+    "Our stock picks, plus press releases and SEC filings for the stocks you choose or the ones that hit our radar. By text, email, or both."],
   ["When do picks go out?",
-    `${alertTiming.long} We don't send at one fixed time, so turn on text alerts if you want them the second they go out.`],
+    `${alertTiming.long} There's no one fixed time, so turn on text alerts to get them the second they go out.`],
   ["What's the difference between Free and Premium?",
-    `Free members get our free picks (including sponsored alerts, always labeled) and all the news and filings. Premium ($${plans.premium.price}/month) gets every pick we make. Level 2 streaming is in beta and not live yet; Premium members get first access.`],
+    `Free gets picks several times a week plus all the news and filings. Premium ($${plans.premium.price}/month) adds our highest-conviction picks, about one to four a month. Level 2 streaming is in beta and not live yet; Premium members get first access.`],
   ["Can I get news on just one stock I own?",
-    "Yes. Tap the bell on any ticker and you'll get that company's press releases and SEC filings by email or text, as soon as they post."],
-  ["How fast is the news?",
-    "Filings come straight from SEC EDGAR and press releases straight from the newswires, usually within minutes of posting. No more checking Yahoo Finance or Google Finance."],
-  ["Do companies pay you?",
-    "Sometimes. Sponsored alerts are always labeled \"Sponsored\" and the compensation is disclosed. Our public track record shows every alert, sponsored or not."],
+    "Yes. Tap the bell on any ticker to get that company's press releases and SEC filings by text or email."],
   ["Is this investment advice?",
-    "No. BigStocks is for information and education. Stocks can go down as well as up. Do your own research."],
+    "No. BigStocks is for information and education. Some alerts are sponsored, and those are always labeled. Do your own research."],
 ];
 
 export function Faq() {

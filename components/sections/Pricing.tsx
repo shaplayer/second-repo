@@ -19,6 +19,7 @@ export function PricingCards({ source = "pricing" }: { source?: string }) {
           <span className="text-[14px] text-muted">forever</span>
         </p>
         <p className="mt-3 text-[15px] text-muted">{free.blurb}</p>
+        <p className="mt-4 inline-flex self-start rounded-full border border-line-strong px-3 py-1 text-[12.5px] text-muted">{free.cadence}</p>
         <ul className="mt-7 space-y-3 text-[15px]">
           {free.features.map((f) => (
             <li key={f} className="flex gap-3"><Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>{f}</span></li>
@@ -33,13 +34,14 @@ export function PricingCards({ source = "pricing" }: { source?: string }) {
         <div className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-brand/15 blur-[90px]" aria-hidden="true" />
         <div className="relative flex items-center justify-between gap-3">
           <p className="text-[13px] font-semibold uppercase tracking-[0.14em] text-brand">{premium.name}</p>
-          <span className="rounded-full border border-brand/40 bg-brand/10 px-2.5 py-1 text-[11.5px] font-semibold text-brand">Every pick</span>
+          <span className="rounded-full border border-brand/40 bg-brand/10 px-2.5 py-1 text-[11.5px] font-semibold text-brand">High conviction</span>
         </div>
         <p className="relative mt-3 flex items-baseline gap-2">
           <span className="num text-[44px] font-semibold leading-none tracking-tight">${premium.price}</span>
           <span className="text-[14px] text-muted">/ month</span>
         </p>
         <p className="relative mt-3 text-[15px] text-muted">{premium.blurb}</p>
+        <p className="relative mt-4 inline-flex self-start rounded-full border border-brand/40 bg-brand/10 px-3 py-1 text-[12.5px] font-medium text-brand">{premium.cadence}</p>
         <ul className="relative mt-7 space-y-3 text-[15px]">
           {premium.features.filter((f) => !f.startsWith("Level 2")).map((f) => (
             <li key={f} className="flex gap-3"><Check className="mt-0.5 h-4 w-4 shrink-0 text-brand" /><span>{f}</span></li>
@@ -70,10 +72,11 @@ export function Pricing() {
       <div className="mx-auto max-w-2xl text-center">
         <p className="eyebrow">Pricing</p>
         <h2 id="pricing-title" className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-tight md:text-[40px]">
-          Start free. <span className="text-muted">Go Premium for every pick.</span>
+          Start free. <span className="text-muted">Go Premium for our best ideas.</span>
         </h2>
         <p className="mx-auto mt-4 max-w-lg text-[16px] text-muted">
-          Free members get our free picks and all the news. Premium members get every stock pick we make.
+          Free members get picks several times a week plus all the news. Premium adds our highest-conviction picks,
+          about one to four a month.
         </p>
       </div>
       <div className="mx-auto mt-12 max-w-[1040px]"><PricingCards /></div>

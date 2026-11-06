@@ -2,6 +2,7 @@ import type { AlertRow } from "@/lib/alerts";
 import { pct } from "@/lib/alerts";
 import { formatPercent } from "@/lib/format";
 import { ResultBadge } from "./ResultBadge";
+import { TickerCell } from "./TierLabel";
 
 /** Recent timestamped alerts (from the permanent track record). */
 export function TrackRecordTable({ alerts }: { alerts: AlertRow[] }) {
@@ -33,9 +34,9 @@ export function TrackRecordTable({ alerts }: { alerts: AlertRow[] }) {
             return (
               <tr key={a.id}>
                 <td className="whitespace-nowrap px-4 py-3 text-muted">{new Date(a.alertedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" })}</td>
-                <td className="whitespace-nowrap px-4 py-3 font-mono font-semibold">
-                  ${a.ticker}
-                  {a.sponsored && <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wider text-muted" title={a.sponsorComp ?? undefined}>Sponsored</span>}
+                <td className="whitespace-nowrap px-4 py-3">
+                  <TickerCell a={a} />
+                  {!a.hidden && a.sponsored && <span className="ml-2 rounded bg-white/[0.06] px-1.5 py-px font-sans text-[10px] font-semibold uppercase tracking-wider text-muted" title={a.sponsorComp ?? undefined}>Sponsored</span>}
                 </td>
                 <td className={`px-4 py-3 text-right ${p == null ? "text-faint" : p > 0 ? "text-brand" : p < 0 ? "text-down" : "text-muted"}`}>{formatPercent(p)}</td>
                 <td className="px-4 py-3 text-right"><ResultBadge result={a.result} /></td>

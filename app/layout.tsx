@@ -7,11 +7,11 @@ const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bigstocks.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "BigStocks: Winning stock alerts, real-time news & SEC filings",
+  title: "BigStocks: Stock alerts, breaking news & SEC filings by text and email",
   description:
-    "Winning stock alerts plus real-time press releases and SEC filings, sent straight to your email and phone. Never miss the news that moves your stocks.",
+    "Big stock alerts and breaking news, on your phone in seconds. Our picks plus real-time press releases and SEC filings, by text and email.",
   openGraph: {
-    title: "BigStocks: Never miss the news that moves your stocks.",
+    title: "BigStocks: Big stock alerts and breaking news, on your phone in seconds.",
     description: "Winning stock alerts, press releases and SEC filings by email and text. Join 125,000+ investors.",
     url: siteUrl,
     siteName: "BigStocks",

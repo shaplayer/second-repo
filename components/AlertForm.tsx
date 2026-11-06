@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useId, useState } from "react";
 import { SMS_CONSENT_TEXT, smsCombinedConsentText, smsFollowConsentText } from "@/lib/sms-consent";
-import { ArrowRight, Check, Phone, Plus } from "./Icons";
+import { ArrowRight, Check, Mail, Phone } from "./Icons";
 
 /** Formats as (555) 123-4567 while typing. */
 export function formatPhone(v: string) {
@@ -38,7 +38,6 @@ export function AlertForm({
   const id = useId();
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [sms, setSms] = useState(false);
   const [consent, setConsent] = useState(false);
   const [follow, setFollow] = useState(true);
   const [picks, setPicks] = useState(ticker ? picksDefault : true);
@@ -48,7 +47,7 @@ export function AlertForm({
 
   const wantsFollow = Boolean(ticker) && follow;
   const wantsPicks = !ticker || picks;
-  const hasPhone = sms && phone.replace(/\D/g, "").length > 0;
+  const hasPhone = phone.replace(/\D/g, "").length > 0;
   const nothingPicked = Boolean(ticker) && !follow && !picks;
 
   const consentText = !ticker || !wantsFollow
@@ -108,13 +107,8 @@ export function AlertForm({
   }
 
   const inline = layout === "inline";
-  const pill = "flex items-center gap-1.5 rounded-full border border-line-strong bg-surface transition-colors focus-within:border-brand/60";
   const input = "min-w-0 flex-1 bg-transparent text-[15px] text-ink placeholder:text-faint focus:outline-none";
-  const button = (
-    <button type="submit" disabled={status === "loading"} className={`btn-primary shrink-0 ${inline ? "!h-full !px-5" : "w-full"}`}>
-      {status === "loading" ? "Joining…" : <>{cta} <ArrowRight /></>}
-    </button>
-  );
+  const row = `flex items-center gap-3 px-4 ${inline ? "h-14" : "h-12"}`;
 
   return (
     <form onSubmit={submit} className={`w-full text-left ${inline ? "max-w-[540px]" : ""}`} noValidate>
@@ -130,42 +124,43 @@ export function AlertForm({
         </fieldset>
       )}
 
-      <div className={`${pill} ${inline ? "h-14 p-1.5 pl-5" : "h-12 px-4"}`}>
-        <label htmlFor={`${id}-email`} className="sr-only">Email address</label>
-        <input id={`${id}-email`} type="email" autoComplete="email" inputMode="email" placeholder="you@email.com"
-          required={!hasPhone} value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
-        {inline && button}
-      </div>
-
-      {sms ? (
-        <div className="mt-2.5">
-          <div className={`${pill} h-12 px-4`}>
-            <Phone className="h-4 w-4 shrink-0 text-brand" />
-            <span className="text-[15px] text-faint" aria-hidden="true">+1</span>
-            <label htmlFor={`${id}-phone`} className="sr-only">Mobile number (US)</label>
-            <input id={`${id}-phone`} type="tel" autoComplete="tel-national" inputMode="tel" placeholder="(555) 123-4567" autoFocus
-              value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} className={`num ${input}`} />
-            <button type="button" onClick={() => { setSms(false); setPhone(""); setConsent(false); }}
-              className="text-[12px] text-faint hover:text-ink">Remove</button>
-          </div>
-          <label className="mt-2.5 flex cursor-pointer gap-3 text-[11.5px] leading-relaxed text-faint">
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[#12e27a]" />
-            <span>{consentText} <Link href="/sms-terms" className="text-muted underline underline-offset-2 hover:text-ink">SMS terms</Link></span>
-          </label>
+      {/* Email and text live in one box: one sign-up, two ways to get it. Text is optional but recommended. */}
+      <div className="overflow-hidden rounded-[22px] border border-line-strong bg-surface transition-colors focus-within:border-brand/60">
+        <div className={row}>
+          <Mail className="h-4 w-4 shrink-0 text-faint" />
+          <label htmlFor={`${id}-email`} className="sr-only">Email address</label>
+          <input id={`${id}-email`} type="email" autoComplete="email" inputMode="email" placeholder="you@email.com"
+            required={!hasPhone} value={email} onChange={(e) => setEmail(e.target.value)} className={input} />
         </div>
-      ) : (
-        <button type="button" onClick={() => setSms(true)}
-          className="mt-2.5 inline-flex h-9 items-center gap-1.5 rounded-full border border-dashed border-line-strong px-3.5 text-[13px] text-muted transition-colors hover:border-brand/50 hover:text-ink">
-          <Plus className="h-3.5 w-3.5 text-brand" /> Also text me
-        </button>
+        <div className="mx-4 h-px bg-line" />
+        <div className={row}>
+          <Phone className="h-4 w-4 shrink-0 text-brand" />
+          <span className="num text-[15px] text-faint" aria-hidden="true">+1</span>
+          <label htmlFor={`${id}-phone`} className="sr-only">Mobile number for text alerts (US, recommended)</label>
+          <input id={`${id}-phone`} type="tel" autoComplete="tel-national" inputMode="tel" placeholder="Mobile for text alerts"
+            value={phone} onChange={(e) => setPhone(formatPhone(e.target.value))} className={`num ${input}`} />
+          <span className="shrink-0 rounded-full bg-brand/12 px-2.5 py-1 text-[11px] font-semibold text-brand">Recommended</span>
+        </div>
+      </div>
+      <p className="mt-2 px-1 text-[12.5px] text-muted">
+        <span className="text-ink">Texts land in seconds,</span> straight to your phone. It&apos;s the fastest way to catch a pick.
+      </p>
+
+      {hasPhone && (
+        <label className="mt-3 flex cursor-pointer gap-3 px-1 text-[11.5px] leading-relaxed text-faint">
+          <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-[#12e27a]" />
+          <span>{consentText} <Link href="/sms-terms" className="text-muted underline underline-offset-2 hover:text-ink">SMS terms</Link></span>
+        </label>
       )}
 
       <input type="text" name="company" tabIndex={-1} autoComplete="off" className="hidden" aria-hidden="true" />
-      {!inline && <div className="mt-4">{button}</div>}
+      <button type="submit" disabled={status === "loading"} className={`btn-primary mt-4 w-full ${inline ? "!h-[52px] !text-[16px]" : ""}`}>
+        {status === "loading" ? "Joining…" : <>{cta} <ArrowRight /></>}
+      </button>
 
       <p className={`mt-3 text-[12.5px] ${status === "error" ? "text-down" : "text-faint"}`} aria-live="polite">
-        {status === "error" ? msg : "Free. Unsubscribe anytime. US numbers only for text. Not investment advice."}
+        {status === "error" ? msg : "Free. Unsubscribe anytime. Text alerts for US numbers. Not investment advice."}
       </p>
     </form>
   );

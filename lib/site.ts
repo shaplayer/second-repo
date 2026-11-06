@@ -27,15 +27,16 @@ export const audience = {
 };
 
 /**
- * Alert timing. Picks don't go out at one fixed time (sometimes 8:00, sometimes 8:30, sometimes
- * at the open), so the site never promises a clock time. The countdown counts to the US market
- * open (9:30 AM ET, weekdays), which is the latest a pick lands.
+ * Alert timing. Picks don't go out at one fixed time (8:00, 8:30, at the open, or during market hours
+ * if a setup pops up), so the site never promises one clock time. The homepage countdown counts to
+ * the start of the 8:00–9:30 AM ET pick window.
  */
 export const alertTiming = {
   short: "Pre-market or at the open",
   long: "Picks land pre-market or right at the opening bell, depending on the setup.",
 };
-export const marketOpen = { hourET: 9, minuteET: 30, weekdaysOnly: true };
+/** The pick window, US Eastern: 8:00 AM to the 9:30 AM opening bell, trading days only (see lib/schedule.ts). */
+export const alertWindow = { startHourET: 8, startMinuteET: 0, endHourET: 9, endMinuteET: 30 };
 
 export const nav = [
   { label: "Stock Alerts", href: links.alerts },
@@ -51,22 +52,25 @@ export const plans = {
     name: "Free",
     price: 0,
     blurb: "Great picks and breaking news, free forever.",
+    cadence: "Picks several times a week",
     features: [
-      "Free stock picks by email and text",
+      "Free stock picks several times a week",
       "Real-time press releases and SEC filings",
       "Follow any ticker: its news and filings sent to you",
+      "Text and email delivery, in seconds",
       "Sponsored alerts, always labeled",
     ],
   },
   premium: {
     name: "Premium",
     price: 49,
-    blurb: "Every pick we make, the moment we make it.",
+    blurb: "Our highest-conviction picks. Fewer picks, more research behind each one.",
+    cadence: "About 1 to 4 picks a month",
     features: [
-      "Every BigStocks pick, not just the free ones",
-      "Short-term movers and long-term holds",
-      "Instant text and email delivery",
       "Everything in Free",
+      "Premium picks: our highest-conviction ideas, not sent to Free",
+      "About 1 to 4 a month. We wait for the best setups",
+      "Short-term setups and longer-term holds",
       "Level 2 streaming (beta, early access)",
     ],
   },

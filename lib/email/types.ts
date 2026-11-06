@@ -18,4 +18,6 @@ export interface EmailProvider {
   configured(): boolean;
   /** Throw on failure. */
   send(msg: EmailMessage): Promise<{ id: string }>;
+  /** Optional: send many at once (alert broadcasts). Falls back to send() one by one. */
+  sendBatch?(msgs: EmailMessage[]): Promise<void>;
 }

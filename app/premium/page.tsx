@@ -2,13 +2,12 @@ import type { Metadata } from "next";
 import { Nav } from "@/components/Nav";
 import { Footer } from "@/components/sections/Footer";
 import { PricingCards } from "@/components/sections/Pricing";
-import { PickCards } from "@/components/sections/LongTermPicks";
 import { AlertForm } from "@/components/AlertForm";
 import { links, plans } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: `Premium Stock Alerts: Every Pick for $${plans.premium.price}/month | BigStocks`,
-  description: "BigStocks Premium: every stock pick we make, by text and email, plus early access to Level 2 streaming (beta).",
+  title: `Premium Stock Alerts: High-Conviction Picks for $${plans.premium.price}/month | BigStocks`,
+  description: "BigStocks Premium: our highest-conviction stock picks, about 1 to 4 a month, by text and email, plus early access to Level 2 streaming (beta).",
 };
 
 export default function PremiumPage() {
@@ -23,10 +22,11 @@ export default function PremiumPage() {
           <div className="container-wide relative py-16 text-center md:py-20">
             <p className="eyebrow">BigStocks Premium</p>
             <h1 className="mx-auto mt-4 max-w-3xl text-[38px] font-semibold leading-[1.06] tracking-tight md:text-[52px]">
-              Every pick we make. <span className="text-gradient">${plans.premium.price} a month.</span>
+              Our highest-conviction picks. <span className="text-gradient">${plans.premium.price} a month.</span>
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-[17px] text-muted">
-              Free members get some of our picks. Premium members get all of them, the moment we make them, by text and email.
+              Free members get picks several times a week. Premium adds the ones we&apos;re most confident in: about one to four
+              a month, short-term setups and longer-term holds, by text and email.
             </p>
           </div>
         </section>
@@ -35,7 +35,7 @@ export default function PremiumPage() {
           <div className="mx-auto max-w-[1040px]"><PricingCards source="premium-page" /></div>
 
           {!checkoutLive && (
-            <div id="waitlist" className="card mx-auto mt-10 grid max-w-[1040px] gap-8 p-7 md:grid-cols-[1fr_1.1fr] md:items-center md:p-10">
+            <div id="waitlist" className="card mx-auto mt-10 grid max-w-[1040px] grid-cols-1 gap-8 p-7 md:grid-cols-[1fr_1.1fr] md:items-center md:p-10">
               <div>
                 <p className="eyebrow">Premium checkout opens soon</p>
                 <h2 className="mt-3 text-[24px] font-semibold tracking-tight md:text-[28px]">Save your spot</h2>
@@ -49,11 +49,6 @@ export default function PremiumPage() {
           )}
         </section>
 
-        <section className="container-wide pb-20 md:pb-24">
-          <h2 className="text-[24px] font-semibold tracking-tight md:text-[28px]">Picks we called early</h2>
-          <div className="mt-6"><PickCards /></div>
-          <p className="mt-4 text-[12px] text-faint">Logged after the fact, before our timestamped record began. Past performance doesn&apos;t guarantee future results. Not investment advice.</p>
-        </section>
       </main>
       <Footer />
     </>
