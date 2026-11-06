@@ -92,3 +92,28 @@ CREATE TRIGGER alerts_guard_truncate BEFORE TRUNCATE ON alerts FOR EACH STATEMEN
 
 -- When the team was emailed about an inquiry (NULL = notification not sent / failed)
 ALTER TABLE inquiries ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
+
+-- Per-company alerts: follow a ticker by email or SMS for its press releases,
+-- SEC filings and BigStocks alerts.
+-- general_alerts = on the daily alert list (main sign-up). Following one company doesn't add you to it.
+ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS general_alerts BOOLEAN NOT NULL DEFAULT TRUE;
+
+CREATE TABLE IF NOT EXISTS ticker_follows (
+  id              BIGSERIAL PRIMARY KEY,
+  subscriber_id   BIGINT NOT NULL REFERENCES subscribers(id),
+  ticker          TEXT NOT NULL,
+  channel         TEXT NOT NULL CHECK (channel IN ('email', 'sms')),
+  token           TEXT NOT NULL UNIQUE,      -- confirm / unsubscribe links
+  consent_text    TEXT,                      -- exact SMS consent wording (TCPA)
+  consent_at      TIMESTAMPTZ,
+  confirmed_at    TIMESTAMPTZ,               -- email: double opt-in; sms: at sign-up
+  unsubscribed_at TIMESTAMPTZ,
+  last_notified_at TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (subscriber_id, ticker, channel)
+);
+CREATE INDEX IF NOT EXISTS ticker_follows_active_idx ON ticker_follows (ticker) WHERE unsubscribed_at IS NULL AND confirmed_at IS NOT NULL;
+
+-- When followers were told about each item (NULL = not yet processed)
+ALTER TABLE news_items ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;

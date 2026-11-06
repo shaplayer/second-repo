@@ -8,6 +8,7 @@ import { fetchLatestFilings } from "../lib/feeds/edgar";
 import { fetchPressReleases } from "../lib/feeds/rss";
 import { saveItems } from "../lib/feeds/index";
 import { retryInquiryNotifications } from "../lib/email/retry";
+import { dispatchFollowNotifications } from "../lib/follow/notify";
 
 const INTERVAL_MS = Number(process.env.INGEST_INTERVAL_SEC ?? 180) * 1000;
 // Newswires rate-limit readers that poll too often, so check them less often than SEC.
@@ -33,6 +34,10 @@ async function pass() {
     `[ingest] ${new Date().toISOString()} fetched=${filings.length + press.length} new=${added} ` +
       [...bySource].map(([s, n]) => `${s}:${n}`).join(" ") + ` (${Date.now() - started}ms)`,
   );
+
+  // Tell people who follow these companies (new news, filings and BigStocks alerts).
+  const n = await dispatchFollowNotifications().catch((e) => { console.error("[follow]", e?.message); return null; });
+  if (n && (n.emails || n.texts || n.failed)) console.log(`[follow] ${n.tickers} companies · ${n.emails} emails · ${n.texts} texts · ${n.failed} failed`);
 }
 
 async function main() {

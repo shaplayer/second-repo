@@ -97,6 +97,22 @@ server {
 The search box opens a ticker page for `$ABCD` or one short word (`AAPL`, `tsla`), and searches headlines for anything else.
 "Load more" pages through the database (25 items per page).
 
+## Company alerts (follow a ticker)
+
+Every company page (`/news/ABCD`), and the homepage feed when someone searches a ticker, has **Email** and **Text**
+buttons. A follower is told whenever that company has a new **press release or SEC filing**, or BigStocks posts a
+**free alert** on it.
+
+- **Email** is double opt-in: we send a confirmation link and nothing else until it's clicked, so nobody can sign
+  someone else up. Every email has an unsubscribe link plus one-click unsubscribe headers (`List-Unsubscribe`,
+  required by Gmail/Yahoo for bulk senders). Set `COMPANY_POSTAL_ADDRESS`: CAN-SPAM requires a postal address in marketing email.
+- **Text** needs the consent box. The exact wording is stored per follow (`ticker_follows.consent_text`). STOP opts the number out of all texts.
+- Following a company does **not** add someone to the daily alert list (`subscribers.general_alerts`); `sms:broadcast` only reaches the daily list.
+- **Sending:** the ingest worker checks for new items every pass, and `POST /api/alerts` sends a new BigStocks alert to
+  that stock's followers right away. Only items first seen in the last 2 hours are sent (no backfill blasts), each item
+  is marked once sent (no duplicates), and a database lock stops two processes sending at once. Sponsored alerts include the compensation disclosure.
+- Sends one by one: fine for thousands of followers. For much larger lists, move sending to a queue with your email/SMS vendor's bulk API.
+
 ## SMS text alerts (any provider)
 
 Sign-up is live on every form (Email / Text tabs). A text sign-up requires the unchecked consent box. The exact consent

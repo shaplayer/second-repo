@@ -8,6 +8,8 @@ export type EmailMessage = {
   text: string;
   html?: string;
   replyTo?: string;
+  /** Extra headers, e.g. List-Unsubscribe / List-Unsubscribe-Post (one-click unsubscribe). */
+  headers?: Record<string, string>;
 };
 
 export interface EmailProvider {

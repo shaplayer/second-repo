@@ -54,7 +54,7 @@ export async function POST(req: Request) {
     if (email) {
       await db().query(
         `INSERT INTO subscribers (email, ip, user_agent, source) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (email) DO UPDATE SET unsubscribed_at = NULL`,
+         ON CONFLICT (email) DO UPDATE SET unsubscribed_at = NULL, general_alerts = TRUE`,
         [email, ip, ua, source],
       );
       return NextResponse.json({ ok: true });
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
        VALUES ($1, TRUE, $2, now(), $3, $4, $5)
        ON CONFLICT (phone) DO UPDATE
          SET sms_consent = TRUE, consent_text = EXCLUDED.consent_text, consent_at = now(),
-             ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, unsubscribed_at = NULL
+             ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, unsubscribed_at = NULL, general_alerts = TRUE
        RETURNING (xmax = 0) AS inserted`,
       [phone, SMS_CONSENT_TEXT, ip, ua, source],
     );

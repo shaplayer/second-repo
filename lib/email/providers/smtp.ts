@@ -32,6 +32,7 @@ export const smtpEmail: EmailProvider = {
       from: process.env.EMAIL_FROM,
       to: m.to,
       replyTo: m.replyTo,
+      headers: m.headers,
       subject: m.subject,
       text: m.text,
       html: m.html,

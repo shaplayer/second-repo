@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
+import { dispatchFollowNotifications } from "@/lib/follow/notify";
 import { db, hasDb } from "@/lib/db";
 import { alertsKeyOk } from "@/lib/api-auth";
 import { normalizeTicker } from "@/lib/feeds/tickers";
@@ -36,5 +37,7 @@ export async function POST(req: Request) {
      VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
     [ticker, at.toISOString(), price, sponsored, comp, typeof b.notes === "string" ? b.notes.slice(0, 1000) : null],
   );
+  // Tell this stock's followers now, after responding (the ingest worker also catches anything missed).
+  after(() => dispatchFollowNotifications().catch((e) => console.error("[follow]", e?.message)));
   return NextResponse.json({ id: String(rows[0].id) }, { status: 201 });
 }

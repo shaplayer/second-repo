@@ -16,6 +16,16 @@ export const SMS_WELCOME =
 
 export const SMS_FOOTER = "Reply STOP to opt out";
 
+/** Consent wording for following one company by text. Stored with each follow. */
+export const smsFollowConsentText = (ticker: string) =>
+  `By checking this box, I agree to receive recurring automated text messages from BigStocks about $${ticker} ` +
+  "(company news, SEC filings and stock alerts) at the number provided. Consent is not a condition of purchase. " +
+  "Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to cancel.";
+
+export const smsFollowWelcome = (ticker: string) =>
+  `BigStocks: You'll get $${ticker} news, filings & alerts by text. Msg freq varies. Msg & data rates may apply. ` +
+  "Reply HELP for help, STOP to cancel.";
+
 /** US numbers only for now. Returns E.164 (+1XXXXXXXXXX) or null. */
 export function toE164US(input: string): string | null {
   const d = String(input ?? "").replace(/\D/g, "");

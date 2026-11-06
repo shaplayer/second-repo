@@ -20,7 +20,7 @@ async function main() {
   const body = /reply stop/i.test(text) ? text : `${text}\n${SMS_FOOTER}`;
 
   const { rows } = await db().query<{ phone: string }>(
-    `SELECT phone FROM subscribers WHERE phone IS NOT NULL AND sms_consent AND unsubscribed_at IS NULL ORDER BY id`,
+    `SELECT phone FROM subscribers WHERE phone IS NOT NULL AND sms_consent AND general_alerts AND unsubscribed_at IS NULL ORDER BY id`,
   );
   console.log(`Message (${body.length} chars, ~${Math.ceil(body.length / 153)} segment(s)):\n---\n${body}\n---`);
   console.log(`Recipients: ${rows.length}`);

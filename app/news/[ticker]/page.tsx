@@ -7,10 +7,11 @@ import { tidyName } from "@/lib/feeds/edgar";
 import { FeedList } from "@/components/FeedList";
 import { NewsShell, SectionTabs } from "@/components/NewsShell";
 import { CopyLink } from "@/components/CopyLink";
+import { FollowTicker } from "@/components/FollowTicker";
 
 export const dynamic = "force-dynamic";
 
-type Props = { params: Promise<{ ticker: string }>; searchParams: Promise<{ type?: string }> };
+type Props = { params: Promise<{ ticker: string }>; searchParams: Promise<{ type?: string; follow?: string }> };
 
 async function companyName(ticker: string): Promise<string | null> {
   try {
@@ -33,7 +34,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
   const raw = decodeURIComponent((await params).ticker);
   const ticker = normalizeTicker(raw);
   if (!ticker) notFound();
-  const { type } = await searchParams;
+  const { type, follow } = await searchParams;
   const kind = type === "press" || type === "filing" ? type : "all";
 
   const [initial, secName] = await Promise.all([getFeed({ ticker, kind, limit: 25 }), companyName(ticker)]);
@@ -56,6 +57,12 @@ export default async function TickerPage({ params, searchParams }: Props) {
           <p className="mt-4 max-w-xl text-[16px] text-muted">
             Every {name ?? ticker} press release and SEC filing, in one place.
           </p>
+          {follow === "confirmed" && (
+            <p role="status" className="mt-5 inline-flex items-center gap-2 rounded-full border border-brand/40 bg-brand/10 px-4 py-2 text-[14px] text-brand">
+              ✓ Confirmed. You&apos;ll get an email when ${ticker} has news, filings or an alert.
+            </p>
+          )}
+          <FollowTicker ticker={ticker} className="mt-6" />
           <div className="mt-5 flex flex-wrap gap-2">
             <CopyLink className="btn-ghost !h-9 !text-[13px]" />
             <a href={`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${encodeURIComponent(ticker)}&type=&dateb=&owner=include&count=40`}

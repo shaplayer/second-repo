@@ -5,6 +5,7 @@ import { links } from "@/lib/site";
 import { SOURCE_CREDITS } from "@/lib/feeds/sources";
 import { SmartLink } from "./SmartLink";
 import { FeedRow } from "./FeedRow";
+import { FollowTicker } from "./FollowTicker";
 import { ArrowRight, Search } from "./Icons";
 
 type Tab = "all" | "press" | "filing";
@@ -63,9 +64,12 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
           </form>
 
           {ticker && /^[A-Z]{1,5}(\.[A-Z])?$/.test(ticker) && (
-            <SmartLink href={`/news/${ticker}`} className="mt-3 inline-flex items-center gap-1.5 pl-4 text-[13.5px] text-brand hover:underline">
-              Open the full ${ticker} page <ArrowRight className="h-3.5 w-3.5" />
-            </SmartLink>
+            <>
+              <SmartLink href={`/news/${ticker}`} className="mt-3 inline-flex items-center gap-1.5 pl-4 text-[13.5px] text-brand hover:underline">
+                Open the full ${ticker} page <ArrowRight className="h-3.5 w-3.5" />
+              </SmartLink>
+              <FollowTicker key={ticker} ticker={ticker} className="mt-5" />
+            </>
           )}
 
           <div className="mt-8 hidden gap-3 text-[13px] lg:flex">

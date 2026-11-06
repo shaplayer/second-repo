@@ -43,3 +43,6 @@ export const Phone = ({ className = "h-4 w-4" }: P) => (
 export const Mail = ({ className = "h-4 w-4" }: P) => (
   <svg viewBox="0 0 24 24" className={className} {...base} aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 6 8-6" /></svg>
 );
+export const Bell = ({ className = "h-4 w-4" }: P) => (
+  <svg viewBox="0 0 24 24" className={className} {...base} aria-hidden="true"><path d="M6 9a6 6 0 1 1 12 0c0 4.5 1.5 6.5 2 7H4c.5-.5 2-2.5 2-7Z" /><path d="M10 19a2 2 0 0 0 4 0" /></svg>
+);
