@@ -1,8 +1,11 @@
 import type { FeedItem } from "./types";
-import { cached, fetchText } from "./http";
+import { cached, fetchFeed, fetchText } from "./http";
 import { EDGAR_FORMS, FORM_LABELS, edgarCurrentUrl, edgarSubmissionsUrl } from "./sources";
 import { tickerMap } from "./tickers";
 import { stripHtml, text, xml } from "./xml";
+
+/** SEC EDGAR is often slow (several seconds) at busy times. */
+const SEC_TIMEOUT_MS = 20_000;
 
 type TickerLookup = (cik: number) => { ticker: string; name: string } | undefined;
 
@@ -67,7 +70,7 @@ export async function fetchLatestFilings(): Promise<FeedItem[]> {
   const map = await tickerMap();
   const lookup: TickerLookup = (cik) => map.byCik.get(cik);
   const results = await Promise.allSettled(
-    EDGAR_FORMS.map(async (f) => parseEdgarAtom(await fetchText(edgarCurrentUrl(f)), lookup)),
+    EDGAR_FORMS.map(async (f) => parseEdgarAtom(await fetchFeed(edgarCurrentUrl(f), SEC_TIMEOUT_MS), lookup)),
   );
   const seen = new Set<string>();
   const items: FeedItem[] = [];
@@ -92,7 +95,7 @@ export async function fetchFilingsForTicker(ticker: string, limit = 20): Promise
   const hit = map.byTicker.get(ticker);
   if (!hit) return [];
   return cached(`sec:sub:${hit.cik}:${limit}`, 5 * 60 * 1000, async () => {
-    const sub = JSON.parse(await fetchText(edgarSubmissionsUrl(hit.cik))) as Submissions;
+    const sub = JSON.parse(await fetchText(edgarSubmissionsUrl(hit.cik), SEC_TIMEOUT_MS)) as Submissions;
     const r = sub.filings.recent;
     const out: FeedItem[] = [];
     for (let i = 0; i < r.form.length && out.length < limit; i++) {

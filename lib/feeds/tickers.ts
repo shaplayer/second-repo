@@ -9,7 +9,7 @@ type TickerMap = {
 /** SEC's official ticker <-> CIK map (refreshed daily). */
 export function tickerMap(): Promise<TickerMap> {
   return cached("sec:tickers", 24 * 60 * 60 * 1000, async () => {
-    const raw = JSON.parse(await fetchText(EDGAR_TICKERS_URL, 15000)) as Record<
+    const raw = JSON.parse(await fetchText(EDGAR_TICKERS_URL, 30000)) as Record<
       string,
       { cik_str: number; ticker: string; title: string }
     >;

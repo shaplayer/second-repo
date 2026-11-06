@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FeedResponse } from "@/lib/feeds/types";
 import { links } from "@/lib/site";
+import { SOURCE_CREDITS } from "@/lib/feeds/sources";
 import { SmartLink } from "./SmartLink";
 import { FeedRow } from "./FeedRow";
 import { ArrowRight, Search } from "./Icons";
@@ -110,7 +111,7 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3.5 text-[12px] text-faint sm:px-6">
-            <span>Sources: SEC EDGAR · GlobeNewswire · PR Newswire · Business Wire · ACCESS Newswire</span>
+            <span>Sources: {SOURCE_CREDITS}</span>
             <span className="flex gap-4 lg:hidden">
               <SmartLink href={links.news} className="text-brand">All news →</SmartLink>
               <SmartLink href={links.filings} className="text-brand">All filings →</SmartLink>

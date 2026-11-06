@@ -3,12 +3,16 @@
  *   npm run ingest:once   # one pass, prints a per-source report
  *   npm run ingest        # loop forever (run under PM2)
  */
+import "./load-env";
 import { fetchLatestFilings } from "../lib/feeds/edgar";
 import { fetchPressReleases } from "../lib/feeds/rss";
 import { saveItems } from "../lib/feeds/index";
 import { retryInquiryNotifications } from "../lib/email/retry";
 
 const INTERVAL_MS = Number(process.env.INGEST_INTERVAL_SEC ?? 180) * 1000;
+// Newswires rate-limit readers that poll too often, so check them less often than SEC.
+const PRESS_INTERVAL_MS = Number(process.env.PRESS_INTERVAL_SEC ?? 600) * 1000;
+let lastPressAt = 0;
 
 async function pass() {
   // Re-send any Advertise-form notifications that failed (never blocks the feed).
@@ -16,7 +20,12 @@ async function pass() {
   if (r.sent || r.failed) console.log(`[inquiry-retry] re-sent ${r.sent}, failed ${r.failed}`);
 
   const started = Date.now();
-  const [filings, press] = await Promise.all([fetchLatestFilings(), fetchPressReleases()]);
+  const pressDue = Date.now() - lastPressAt >= PRESS_INTERVAL_MS;
+  const [filings, press] = await Promise.all([
+    fetchLatestFilings(),
+    pressDue ? fetchPressReleases() : Promise.resolve([]),
+  ]);
+  if (pressDue) lastPressAt = Date.now();
   const bySource = new Map<string, number>();
   for (const i of [...filings, ...press]) bySource.set(i.source, (bySource.get(i.source) ?? 0) + 1);
   const added = await saveItems([...filings, ...press]);
@@ -27,7 +36,7 @@ async function pass() {
 }
 
 async function main() {
-  if (!process.env.DATABASE_URL) throw new Error("Set DATABASE_URL (see .env.example)");
+  if (!process.env.DATABASE_URL) throw new Error("Set DATABASE_URL (in .env or the environment; see .env.example)");
   if (process.argv.includes("--once")) { await pass(); process.exit(0); }
   for (;;) {
     await pass().catch((e) => console.error("[ingest] failed:", e?.message ?? e));

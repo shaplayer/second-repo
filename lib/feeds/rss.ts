@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { FeedItem } from "./types";
-import { fetchText } from "./http";
-import { PRESS_FEEDS } from "./sources";
+import { fetchFeed } from "./http";
+import { ACTIVE_PRESS_FEEDS as PRESS_FEEDS } from "./sources";
 import { stripHtml, text, xml } from "./xml";
 
 // "(NASDAQ: ABCD)", "NYSE American: XYZ", "OTCQB:ABCD", "Nasdaq: ABCD, ABCDW"
@@ -59,7 +59,7 @@ export function parseRss(body: string, source: string): FeedItem[] {
 
 export async function fetchPressReleases(): Promise<FeedItem[]> {
   const results = await Promise.allSettled(
-    PRESS_FEEDS.map(async (f) => parseRss(await fetchText(f.url), f.source)),
+    PRESS_FEEDS.map(async (f) => parseRss(await fetchFeed(f.url, 15000), f.source)),
   );
   const seen = new Set<string>();
   const items: FeedItem[] = [];

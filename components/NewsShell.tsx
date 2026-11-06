@@ -5,6 +5,7 @@ import { SignupForm } from "./SignupForm";
 import { FeedSearch } from "./FeedSearch";
 import { ArrowRight } from "./Icons";
 import { links } from "@/lib/site";
+import { SOURCE_CREDITS } from "@/lib/feeds/sources";
 
 export function SectionTabs({ active }: { active: "news" | "filings" | null }) {
   const tab = (on: boolean) =>
@@ -40,7 +41,7 @@ export function NewsShell({ header, toolbar, children, sidebarTop, searchBase = 
             {toolbar && <div className="mb-4 flex flex-wrap items-center gap-2">{toolbar}</div>}
             <div className="card overflow-clip">{children}</div>
             <p className="mt-4 text-[12px] text-faint">
-              Sources: SEC EDGAR · GlobeNewswire · PR Newswire · Business Wire · ACCESS Newswire. Headlines link to the original source. Times are US Eastern.
+              Sources: {SOURCE_CREDITS}. Headlines link to the original source. Times are US Eastern.
             </p>
           </div>
 

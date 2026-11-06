@@ -5,6 +5,7 @@
  * Skips anyone who replied STOP. Appends "Reply STOP to opt out" if missing.
  * Sponsored alerts must include the compensation disclosure in the text.
  */
+import "./load-env";
 import { db } from "../lib/db";
 import { smsProvider } from "../lib/sms";
 import { SMS_FOOTER } from "../lib/sms-consent";

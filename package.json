@@ -7,11 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "ingest": "tsx --env-file=.env scripts/ingest.ts",
-    "ingest:once": "tsx --env-file=.env scripts/ingest.ts --once",
+    "ingest": "tsx scripts/ingest.ts",
+    "ingest:once": "tsx scripts/ingest.ts --once",
     "test": "tsx scripts/test-parsers.ts",
-    "sms:broadcast": "tsx --env-file=.env scripts/sms-broadcast.ts",
-    "db:init": "node --env-file=.env -e \"const{Pool}=require('pg');new Pool({connectionString:process.env.DATABASE_URL}).query(require('fs').readFileSync('db/schema.sql','utf8')).then(()=>{console.log('schema ok');process.exit(0)},e=>{console.error(e.message);process.exit(1)})\""
+    "sms:broadcast": "tsx scripts/sms-broadcast.ts",
+    "db:init": "tsx scripts/db-init.ts",
+    "feeds:check": "tsx scripts/feeds-check.ts"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.2.8",

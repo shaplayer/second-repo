@@ -14,17 +14,29 @@ export const EDGAR_TICKERS_URL = "https://www.sec.gov/files/company_tickers.json
 export const edgarSubmissionsUrl = (cik: number) =>
   `https://data.sec.gov/submissions/CIK${String(cik).padStart(10, "0")}.json`;
 
-/** Newswire RSS feeds (public). Only items that name a ticker are kept. */
-export const PRESS_FEEDS: { source: string; url: string }[] = [
+/**
+ * Newswire RSS feeds (public). Only items that name a ticker are kept.
+ * Checked live Nov 2026: PR Newswire and Business Wire serve their feeds to automated
+ * readers. GlobeNewswire and ACCESS Newswire answered 403 Forbidden (bot protection),
+ * so they're off by default. Run `npm run feeds:check` on your server: if one of them
+ * returns items from there, set `enabled: true`. Don't disguise the reader to get past a block.
+ */
+export const PRESS_FEEDS: { source: string; url: string; enabled: boolean }[] = [
+  { source: "PR Newswire", url: "https://www.prnewswire.com/rss/news-releases-list.rss", enabled: true },
+  { source: "PR Newswire", url: "https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss", enabled: true },
+  { source: "Business Wire", url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeGVtRWA==", enabled: true },
   {
     source: "GlobeNewswire",
     url: "https://www.globenewswire.com/RssFeed/orgclass/1/feedTitle/GlobeNewswire%20-%20News%20about%20Public%20Companies",
+    enabled: false,
   },
-  { source: "PR Newswire", url: "https://www.prnewswire.com/rss/news-releases-list.rss" },
-  { source: "PR Newswire", url: "https://www.prnewswire.com/rss/financial-services-latest-news/financial-services-latest-news-list.rss" },
-  { source: "Business Wire", url: "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeGVtRWA==" },
-  { source: "ACCESS Newswire", url: "https://www.accessnewswire.com/newsroom/api/rss" },
+  { source: "ACCESS Newswire", url: "https://www.accessnewswire.com/newsroom/api/rss", enabled: false },
 ];
+
+export const ACTIVE_PRESS_FEEDS = PRESS_FEEDS.filter((f) => f.enabled);
+
+/** "SEC EDGAR · PR Newswire · Business Wire" for source credits in the UI. */
+export const SOURCE_CREDITS = ["SEC EDGAR", ...new Set(ACTIVE_PRESS_FEEDS.map((f) => f.source))].join(" · ");
 
 /** Human-readable label per form type (shown in the feed). */
 export const FORM_LABELS: Record<string, string> = {

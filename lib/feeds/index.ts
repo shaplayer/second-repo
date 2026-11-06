@@ -33,7 +33,7 @@ export async function fetchAllLive(): Promise<FeedItem[]> {
   return [...filings, ...press].sort(byNewest);
 }
 
-const liveCached = () => cached("feed:live", 5 * 60 * 1000, fetchAllLive);
+const liveCached = () => cached("feed:live", 10 * 60 * 1000, fetchAllLive);
 
 function matches(i: FeedItem, q: Q): boolean {
   if (q.kind !== "all" && i.kind !== q.kind) return false;

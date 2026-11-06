@@ -21,6 +21,26 @@ No database or internet? Preview with fictional sample data (dev only, never in 
 FEED_SAMPLE=1 npm run dev
 ```
 
+## News not showing? Run the diagnostic
+
+```bash
+npm run feeds:check
+```
+
+It tests every source from your server, then the database, and prints the fix for each problem
+(SEC not reachable, a newswire blocking you, tables missing, ingest worker not running…). Typical causes:
+
+| Symptom | Fix |
+|---|---|
+| `fetch failed (ENOTFOUND …)` or `(ECONNREFUSED …)` | The server can't reach the internet on port 443: check the firewall / DNS. |
+| `fetch failed` behind a corporate proxy | Node's `fetch` ignores `HTTPS_PROXY`: start Node with `NODE_USE_ENV_PROXY=1` (Node ≥ 22.21). |
+| SEC returns 403 | Set `SEC_USER_AGENT` to your company name and a real contact email. |
+| A newswire returns 403 | It's blocking or rate-limiting your server. The site backs off automatically; don't poll faster. |
+| `news_items` missing / empty | Run `npm run db:init`, then `npm run ingest:once`, and keep `npm run ingest` running under PM2. |
+| Last ingest is old | `pm2 status`, then `pm2 logs bigstocks-ingest`. |
+
+Scripts read `.env` if it exists, and otherwise use variables already set in the environment (PM2, systemd, shell).
+
 ## Swap in your existing pages
 
 Set these in `.env` (no code change needed):
@@ -36,8 +56,10 @@ Other links and the audience number live in `lib/site.ts`. `NEXT_PUBLIC_*` value
 ## News & filings data ($0)
 
 - **SEC filings:** SEC EDGAR's latest-filings Atom feed (8-K, 10-Q, 10-K, S-1, S-3, 6-K, 424B4, 13D), mapped to tickers with SEC's official `company_tickers.json`. Ticker search also pulls that company's recent filings from `data.sec.gov`. SEC requires `SEC_USER_AGENT` to include a real contact email.
-- **Press releases:** public RSS from GlobeNewswire, PR Newswire, Business Wire and ACCESS Newswire (`lib/feeds/sources.ts`). Only releases naming a ticker (e.g. `(NASDAQ: ABCD)`) are kept.
-- **Ingest worker:** `npm run ingest` loops every 3 min (`INGEST_INTERVAL_SEC`) and upserts into `news_items`. Run `npm run ingest:once` first: it prints item counts per source, so you can fix or remove any feed URL that returns 0.
+- **Press releases:** public RSS from PR Newswire and Business Wire (`lib/feeds/sources.ts`). Only releases naming a ticker (e.g. `(NASDAQ: ABCD)`) are kept.
+- **Ingest worker:** `npm run ingest` checks SEC every 3 min (`INGEST_INTERVAL_SEC`) and the newswires every 10 min (`PRESS_INTERVAL_SEC`; they rate-limit readers that poll too often) and upserts into `news_items`.
+- Feeds are fetched politely: unchanged feeds come back as cheap "not modified" responses, and a site that answers 403/429 is left alone for 30 minutes.
+- GlobeNewswire and ACCESS Newswire answered 403 (bot protection) when checked in Nov 2026, so they're disabled in `lib/feeds/sources.ts`. `npm run feeds:check` tells you whether they work from your server.
 - Without a database the site fetches the sources live and caches them in memory for 5 minutes.
 
 ## Deploy on DigitalOcean (Droplet + PM2 + Nginx)
