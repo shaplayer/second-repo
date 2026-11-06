@@ -3,9 +3,9 @@ import { SmartLink } from "../SmartLink";
 import { Wordmark } from "../Wordmark";
 
 const COLS = [
-  { title: "Product", items: [["Pre-market alerts", links.alerts], ["Level 2 Streaming", links.level2], ["Track record", links.trackRecord]] },
+  { title: "Product", items: [["Stock alerts", links.alerts], ["Premium", links.premium], ["Track record", links.trackRecord], ["Level 2 (beta)", links.level2]] },
   { title: "Research", items: [["News", links.news], ["SEC filings", links.filings]] },
-  { title: "Company", items: [["Advertise", links.advertise], ["Contact", `${links.advertise}#contact`], ["SMS terms", "/sms-terms"]] },
+  { title: "Company", items: [["Contact", `${links.advertise}#contact`], ["SMS terms", "/sms-terms"], ["For public companies", links.advertise]] },
 ] as const;
 
 export function Footer() {
@@ -16,7 +16,7 @@ export function Footer() {
           <div>
             <Wordmark />
             <p className="mt-4 max-w-xs text-[14px] leading-relaxed text-muted">
-              Free pre-market stock alerts from in-house scanners, plus a live feed of every press release and SEC filing.
+              Winning stock alerts, plus every press release and SEC filing the moment it posts. By email and text.
             </p>
           </div>
           {COLS.map((c) => (

@@ -1,4 +1,4 @@
-import { alertSchedule } from "./site";
+import { marketOpen } from "./site";
 
 /** Wall-clock parts in America/New_York, as a fake-UTC timestamp for easy math. */
 function etWallMs(d: Date): number {
@@ -11,15 +11,15 @@ function etWallMs(d: Date): number {
   return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
 }
 
-/** Milliseconds until the next scheduled pre-market alert (weekdays, ET). */
-export function msUntilNextAlert(now = new Date()): number {
+/** Milliseconds until the next US market open (9:30 AM ET, weekdays). Market holidays aren't skipped. */
+export function msUntilMarketOpen(now = new Date()): number {
   const wall = etWallMs(now);
   const day = new Date(wall);
-  let target = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), alertSchedule.hourET, alertSchedule.minuteET);
+  let target = Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(), marketOpen.hourET, marketOpen.minuteET);
   for (let i = 0; i < 8; i++) {
     const dow = new Date(target).getUTCDay();
     const weekend = dow === 0 || dow === 6;
-    if (target > wall && !(alertSchedule.weekdaysOnly && weekend)) break;
+    if (target > wall && !(marketOpen.weekdaysOnly && weekend)) break;
     target += 86_400_000;
   }
   return target - wall;

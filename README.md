@@ -1,10 +1,33 @@
 # BigStocks.com
 
-Website for BigStocks: free pre-market stock alerts by email and SMS, live press release + SEC filings pages,
-Level 2 link, public track record preview and an Advertise teaser for sponsors.
+Website for BigStocks: winning stock alerts plus real-time press releases and SEC filings, by email and SMS.
+Free and Premium ($49/mo) plans, a pulsing alerts bell on every page, long-term picks and a public track record.
 Plan: [`docs/HOMEPAGE_PLAN.md`](docs/HOMEPAGE_PLAN.md).
 
-**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind 4 · Postgres · cobe (globe)
+**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind 4 · Postgres
+
+## Homepage
+
+Order: hero + sign-up → long-term picks → what you get → live news & filings → pricing → track record → FAQ → final sign-up.
+Ad packages are not on the homepage; `/advertise` is linked from the footer only.
+
+**Hero visual (3 options to choose from).** Preview each one:
+
+- `/?visual=chart` (default): live candlestick chart with news pins on breakout candles
+- `/?visual=flow`: money flowing in (green) and out (red), with tickers from the live feed
+- `/?visual=phone`: alerts, filings and press releases landing on a phone
+
+Set `NEXT_PUBLIC_HERO_VISUAL=chart|flow|phone` to change the default. Once the team picks one, delete the other two
+files in `components/hero/` and the switch in `app/page.tsx`.
+
+**Sign-up box** (`components/AlertForm.tsx`): one email field plus "+ Also text me" for SMS. The same form is in the
+**bell pop-up** (`components/AlertsDialog.tsx`), which opens from the bell in the top menu, next to every feed, and on
+each feed row. With a ticker it offers that company's press releases & SEC filings plus free stock picks (both checked),
+using one combined SMS consent (`smsCombinedConsentText` in `lib/sms-consent.ts`, stored with each sign-up).
+
+**Long-term picks** (`lib/picks.ts`): NVDA, AVGO and TSM, picked July 10, 2024. Shown on the homepage, `/premium` and
+`/track-record`, labeled "logged after the fact" and kept out of the timestamped stats. **Verify every price in that file
+before launch**; AVGO's pick price and TSM's latest price are blank until confirmed. Update `latest` regularly.
 
 ## Run locally
 
@@ -48,8 +71,12 @@ Set these in `.env` (no code change needed):
 | Variable | Points to |
 |---|---|
 | `NEXT_PUBLIC_LEVEL2_URL` | Your Level 2 streaming landing page |
-| `NEXT_PUBLIC_ALERTS_URL` | Your pre-market alert countdown page |
-| `NEXT_PUBLIC_ALERT_HOUR_ET` / `NEXT_PUBLIC_ALERT_MINUTE_ET` | Homepage countdown target, US Eastern (default 8:00) |
+| `NEXT_PUBLIC_ALERTS_URL` | Your stock alert page |
+| `NEXT_PUBLIC_PREMIUM_CHECKOUT_URL` | Premium checkout (PayPal, crypto…). Until set, "Get Premium" opens the `/premium` waitlist form |
+| `NEXT_PUBLIC_HERO_VISUAL` | Default hero visual: `chart` (default), `flow` or `phone` |
+
+Alert timing isn't a fixed clock time (8:00, 8:30 or at the open), so the site says "pre-market or at the open"
+(`alertTiming` in `lib/site.ts`). Premium price and plan features are in `plans` in the same file.
 
 Other links and the audience number live in `lib/site.ts`. `NEXT_PUBLIC_*` values are baked in at build time, so rebuild after changing them.
 

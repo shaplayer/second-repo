@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
-import { nav, links } from "@/lib/site";
+import { nav } from "@/lib/site";
 import { SmartLink } from "./SmartLink";
 import { Wordmark } from "./Wordmark";
 import { Close, Menu } from "./Icons";
+import { BellButton } from "./BellButton";
+import { openAlerts } from "./AlertsDialog";
 
 export function Nav() {
   const [open, setOpen] = useState(false);
@@ -34,7 +36,8 @@ export function Nav() {
         </nav>
 
         <div className="flex items-center gap-2">
-          <a href={links.signup} className="btn-primary hidden !h-10 !px-5 !text-[14px] sm:inline-flex">Get free alerts</a>
+          <BellButton variant="icon" source="nav-bell" />
+          <button type="button" onClick={() => openAlerts({ source: "nav" })} className="btn-primary hidden !h-10 !px-5 !text-[14px] sm:inline-flex">Get free alerts</button>
           <button
             type="button"
             className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-line-strong lg:hidden"
@@ -54,7 +57,7 @@ export function Nav() {
               {n.label}
             </SmartLink>
           ))}
-          <a href={links.signup} onClick={() => setOpen(false)} className="btn-primary mt-2">Get free alerts</a>
+          <button type="button" onClick={() => { setOpen(false); openAlerts({ source: "nav-mobile" }); }} className="btn-primary mt-2">Get free alerts</button>
         </nav>
       )}
     </header>

@@ -4,7 +4,7 @@ import { db, hasDb } from "@/lib/db";
 import { emailProvider } from "@/lib/email";
 import { confirmEmail } from "@/lib/follow/messages";
 import { normalizeTicker } from "@/lib/feeds/tickers";
-import { smsFollowConsentText, smsFollowWelcome, toE164US } from "@/lib/sms-consent";
+import { smsCombinedConsentText, smsFollowConsentText, smsFollowWelcome, toE164US } from "@/lib/sms-consent";
 import { smsProvider } from "@/lib/sms";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ function throttled(ip: string) {
   return recent.length > 10;
 }
 
-type Body = { ticker?: string; channel?: string; email?: string; phone?: string; smsConsent?: boolean; company?: string };
+type Body = { ticker?: string; channel?: string; email?: string; phone?: string; smsConsent?: boolean; company?: string; consent?: "combined" };
 
 /**
  * Follow one company: POST {ticker, channel: "email"|"sms", email | phone, smsConsent}
@@ -34,6 +34,8 @@ export async function POST(req: Request) {
   if (!ticker) return NextResponse.json({ error: "Unknown ticker." }, { status: 400 });
   const channel = b.channel === "sms" ? "sms" : "email";
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  // Store the exact wording the person saw (the bell pop-up uses one combined checkbox).
+  const smsText = b.consent === "combined" ? smsCombinedConsentText(ticker) : smsFollowConsentText(ticker);
 
   let email: string | null = null;
   let phone: string | null = null;
@@ -60,12 +62,12 @@ export async function POST(req: Request) {
           `INSERT INTO subscribers (phone, sms_consent, consent_text, consent_at, ip, user_agent, source, general_alerts)
            VALUES ($1, TRUE, $2, now(), $3, $4, 'follow', FALSE)
            ON CONFLICT (phone) DO UPDATE SET sms_consent = TRUE, unsubscribed_at = NULL RETURNING id`,
-          [phone, smsFollowConsentText(ticker), ip, req.headers.get("user-agent")?.slice(0, 300) ?? null],
+          [phone, smsText, ip, req.headers.get("user-agent")?.slice(0, 300) ?? null],
         );
     const subscriberId = sub.rows[0].id;
 
     const token = randomBytes(24).toString("base64url");
-    const consent = channel === "sms" ? smsFollowConsentText(ticker) : null;
+    const consent = channel === "sms" ? smsText : null;
     const { rows } = await db().query(
       `INSERT INTO ticker_follows (subscriber_id, ticker, channel, token, consent_text, consent_at, confirmed_at)
        VALUES ($1, $2, $3, $4, $5, CASE WHEN $5::text IS NULL THEN NULL ELSE now() END, CASE WHEN $3 = 'sms' THEN now() ELSE NULL END)

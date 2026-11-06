@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { db, hasDb } from "@/lib/db";
-import { SMS_CONSENT_TEXT, SMS_WELCOME, toE164US } from "@/lib/sms-consent";
+import { SMS_CONSENT_TEXT, SMS_WELCOME, smsCombinedConsentText, toE164US } from "@/lib/sms-consent";
+import { normalizeTicker } from "@/lib/feeds/tickers";
 import { smsProvider } from "@/lib/sms";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +18,11 @@ function throttled(ip: string) {
   return recent.length > 5;
 }
 
-type Body = { channel?: "email" | "sms"; email?: string; phone?: string; smsConsent?: boolean; source?: string; company?: string };
+type Body = {
+  channel?: "email" | "sms"; email?: string; phone?: string; smsConsent?: boolean; source?: string; company?: string;
+  /** "combined" = the bell pop-up checkbox that also covers one ticker's news (see lib/sms-consent). */
+  consent?: "combined"; ticker?: string;
+};
 
 export async function POST(req: Request) {
   let body: Body;
@@ -44,6 +49,10 @@ export async function POST(req: Request) {
     }
   }
 
+  // Store the exact wording the person saw.
+  const combinedTicker = body.consent === "combined" ? normalizeTicker(body.ticker) : null;
+  const consentText = combinedTicker ? smsCombinedConsentText(combinedTicker) : SMS_CONSENT_TEXT;
+
   if (throttled(ip)) return NextResponse.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
   if (!hasDb()) {
     console.warn("[subscribe] DATABASE_URL not set; sign-up not stored");
@@ -68,9 +77,11 @@ export async function POST(req: Request) {
          SET sms_consent = TRUE, consent_text = EXCLUDED.consent_text, consent_at = now(),
              ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, unsubscribed_at = NULL, general_alerts = TRUE
        RETURNING (xmax = 0) AS inserted`,
-      [phone, SMS_CONSENT_TEXT, ip, ua, source],
+      [phone, consentText, ip, ua, source],
     );
     const sms = smsProvider();
+    // Bell pop-up: /api/follow sends one welcome text covering both, so don't send a second.
+    if (combinedTicker) return NextResponse.json({ ok: true, new: rows[0]?.inserted ?? true });
     if (sms.configured()) {
       try { await sms.send(phone!, SMS_WELCOME); }
       catch (e) { console.error(`[subscribe] welcome SMS via ${sms.name} failed:`, (e as Error).message); }

@@ -9,6 +9,7 @@ import { Search } from "@/components/Icons";
 import { alertStats, listAlerts, pct, resultSequence, type AlertFilter, type AlertResult, type AlertRow } from "@/lib/alerts";
 import { formatET, formatPercent, formatPrice } from "@/lib/format";
 import { normalizeTicker } from "@/lib/feeds/tickers";
+import { PickCards } from "@/components/sections/LongTermPicks";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
@@ -221,6 +222,16 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
               <div className="relative mt-8 flex justify-center"><SignupForm source="track-record" /></div>
             </div>
           )}
+
+          <section id="long-term" className="scroll-mt-24" aria-labelledby="long-term-title">
+            <p className="eyebrow">Long-term picks</p>
+            <h2 id="long-term-title" className="mt-3 text-[24px] font-semibold tracking-tight md:text-[28px]">Picks that kept climbing</h2>
+            <p className="mt-2 max-w-2xl text-[14.5px] text-muted">
+              We picked these in July 2024, before this timestamped record existed, so they&apos;re listed separately and
+              aren&apos;t counted in the stats above. Split-adjusted closing prices.
+            </p>
+            <div className="mt-6"><PickCards /></div>
+          </section>
 
           <section id="methodology" className="scroll-mt-24 grid gap-5 lg:grid-cols-[1.3fr_1fr]" aria-labelledby="method-title">
             <div className="card p-7 md:p-9">

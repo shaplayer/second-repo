@@ -11,6 +11,9 @@ export const links = {
   filings: "/filings",
   trackRecord: "/track-record",
   advertise: "/advertise",
+  premium: "/premium",
+  // Your devs' checkout (PayPal, crypto…). Until it's set, Premium buttons open /premium (waitlist form).
+  premiumCheckout: process.env.NEXT_PUBLIC_PREMIUM_CHECKOUT_URL || "",
   signup: "#signup",
 } as const;
 
@@ -24,20 +27,47 @@ export const audience = {
 };
 
 /**
- * Pre-market alert schedule used by the homepage countdown.
- * Times are US Eastern. Adjust to match your real alert send time.
+ * Alert timing. Picks don't go out at one fixed time (sometimes 8:00, sometimes 8:30, sometimes
+ * at the open), so the site never promises a clock time. The countdown counts to the US market
+ * open (9:30 AM ET, weekdays), which is the latest a pick lands.
  */
-export const alertSchedule = {
-  hourET: Number(process.env.NEXT_PUBLIC_ALERT_HOUR_ET ?? 8),
-  minuteET: Number(process.env.NEXT_PUBLIC_ALERT_MINUTE_ET ?? 0),
-  weekdaysOnly: true,
+export const alertTiming = {
+  short: "Pre-market or at the open",
+  long: "Picks land pre-market or right at the opening bell, depending on the setup.",
 };
+export const marketOpen = { hourET: 9, minuteET: 30, weekdaysOnly: true };
 
 export const nav = [
-  { label: "Alerts", href: links.alerts },
+  { label: "Stock Alerts", href: links.alerts },
   { label: "News", href: links.news },
-  { label: "Filings", href: links.filings },
+  { label: "SEC Filings", href: links.filings },
   { label: "Track Record", href: links.trackRecord },
-  { label: "Level 2", href: links.level2 },
-  { label: "Advertise", href: links.advertise },
+  { label: "Premium", href: links.premium },
 ];
+
+/** Plans. Payment is wired up by the dev team via NEXT_PUBLIC_PREMIUM_CHECKOUT_URL. */
+export const plans = {
+  free: {
+    name: "Free",
+    price: 0,
+    blurb: "Great picks and breaking news, free forever.",
+    features: [
+      "Free stock picks by email and text",
+      "Real-time press releases and SEC filings",
+      "Follow any ticker: its news and filings sent to you",
+      "Sponsored alerts, always labeled",
+    ],
+  },
+  premium: {
+    name: "Premium",
+    price: 49,
+    blurb: "Every pick we make, the moment we make it.",
+    features: [
+      "Every BigStocks pick, not just the free ones",
+      "Short-term movers and long-term holds",
+      "Instant text and email delivery",
+      "Everything in Free",
+      "Level 2 streaming (beta, early access)",
+    ],
+  },
+} as const;

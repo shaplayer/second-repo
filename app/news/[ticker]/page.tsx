@@ -7,7 +7,6 @@ import { tidyName } from "@/lib/feeds/edgar";
 import { FeedList } from "@/components/FeedList";
 import { NewsShell, SectionTabs } from "@/components/NewsShell";
 import { CopyLink } from "@/components/CopyLink";
-import { FollowTicker } from "@/components/FollowTicker";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +45,7 @@ export default async function TickerPage({ params, searchParams }: Props) {
 
   return (
     <NewsShell
+      ticker={ticker}
       searchBase="/news"
       header={
         <>
@@ -62,7 +62,6 @@ export default async function TickerPage({ params, searchParams }: Props) {
               ✓ Confirmed. You&apos;ll get an email when ${ticker} has news, filings or an alert.
             </p>
           )}
-          <FollowTicker ticker={ticker} className="mt-6" />
           <div className="mt-5 flex flex-wrap gap-2">
             <CopyLink className="btn-ghost !h-9 !text-[13px]" />
             <a href={`https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&ticker=${encodeURIComponent(ticker)}&type=&dateb=&owner=include&count=40`}

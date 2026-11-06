@@ -5,7 +5,7 @@ import { links } from "@/lib/site";
 import { SOURCE_CREDITS } from "@/lib/feeds/sources";
 import { SmartLink } from "./SmartLink";
 import { FeedRow } from "./FeedRow";
-import { FollowTicker } from "./FollowTicker";
+import { BellButton } from "./BellButton";
 import { ArrowRight, Search } from "./Icons";
 
 type Tab = "all" | "press" | "filing";
@@ -23,6 +23,7 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
   const first = useRef(true);
 
   const ticker = query.trim().toUpperCase().replace(/^\$/, "");
+  const validTicker = /^[A-Z]{1,5}(\.[A-Z])?$/.test(ticker);
 
   useEffect(() => {
     if (first.current) { first.current = false; return; }
@@ -41,16 +42,16 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
   }, [tab, ticker]);
 
   return (
-    <section id="news" className="container-wide py-24 md:py-28" aria-labelledby="feed-title">
+    <section id="news" className="container-wide py-20 md:py-24" aria-labelledby="feed-title">
       <div className="grid gap-10 lg:grid-cols-[minmax(0,380px)_1fr] lg:gap-16">
         <div className="lg:sticky lg:top-28 lg:self-start">
-          <p className="eyebrow">News &amp; Filings</p>
-          <h2 id="feed-title" className="mt-4 text-[34px] font-semibold leading-[1.1] tracking-tight md:text-[42px]">
-            Every press release and SEC filing. <span className="text-muted">Found in seconds.</span>
+          <p className="eyebrow"><span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-brand" /> Live news &amp; filings</p>
+          <h2 id="feed-title" className="mt-4 text-[32px] font-semibold leading-[1.1] tracking-tight md:text-[40px]">
+            See it the second it posts. <span className="text-muted">Then get it sent to you.</span>
           </h2>
           <p className="mt-5 max-w-md text-[16px] leading-relaxed text-muted">
-            No more digging through finance portals for 30 minutes. Type a ticker and see that company&apos;s
-            latest news and filings, pulled straight from the newswires and SEC EDGAR.
+            Every press release and SEC filing in one place, straight from the newswires and SEC EDGAR.
+            Type a ticker, then hit the bell to get that company&apos;s news by email or text.
           </p>
 
           <form role="search" onSubmit={(e) => e.preventDefault()}
@@ -63,12 +64,12 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
             {query && <button type="button" onClick={() => setQuery("")} className="text-[12px] text-faint hover:text-ink">Clear</button>}
           </form>
 
-          {ticker && /^[A-Z]{1,5}(\.[A-Z])?$/.test(ticker) && (
+          {validTicker && (
             <>
               <SmartLink href={`/news/${ticker}`} className="mt-3 inline-flex items-center gap-1.5 pl-4 text-[13.5px] text-brand hover:underline">
                 Open the full ${ticker} page <ArrowRight className="h-3.5 w-3.5" />
               </SmartLink>
-              <FollowTicker key={ticker} ticker={ticker} className="mt-5" />
+              <div className="mt-5"><BellButton key={ticker} ticker={ticker} source="home-search-bell" /></div>
             </>
           )}
 
@@ -88,10 +89,14 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
                 </button>
               ))}
             </div>
-            <span className="inline-flex items-center gap-2 text-[12px] text-faint">
-              <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-brand" />
-              {data.mode === "sample" ? "Sample data (dev preview)" : "Live · updates every few minutes"}
-            </span>
+            <div className="flex items-center gap-4">
+              <span className="hidden items-center gap-2 text-[12px] text-faint sm:inline-flex">
+                <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-brand" />
+                {data.mode === "sample" ? "Sample data (dev preview)" : "Live"}
+              </span>
+              <BellButton ticker={validTicker ? ticker : undefined} source="home-feed-bell"
+                label={validTicker ? undefined : "Alert me"} className="!h-9" />
+            </div>
           </div>
 
           {loading ? (

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { msUntilNextAlert } from "@/lib/schedule";
+import { msUntilMarketOpen } from "@/lib/schedule";
 
 function split(ms: number) {
   const s = Math.max(0, Math.floor(ms / 1000));
@@ -11,7 +11,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 export function useCountdown() {
   const [ms, setMs] = useState<number | null>(null);
   useEffect(() => {
-    const tick = () => setMs(msUntilNextAlert());
+    const tick = () => setMs(msUntilMarketOpen());
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);

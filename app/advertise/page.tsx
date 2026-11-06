@@ -18,7 +18,7 @@ const STATS = [
   { value: audience.emailSubscribers.toLocaleString("en-US"), label: "Email subscribers" },
   { value: `${compact(audience.dailyImpressions)}+`, label: "Impressions per day" },
   { value: `${audience.dailyClicks.toLocaleString("en-US")}+`, label: "Clicks per day" },
-  { value: "Pre-market", label: "When alerts land" },
+  { value: "Pre-market / open", label: "When alerts land" },
 ];
 
 const STEPS = [
@@ -30,7 +30,7 @@ const STEPS = [
 const FAQ = [
   {
     q: "Who is the BigStocks audience?",
-    a: "Active traders and investors who signed up to get our free pre-market stock alerts. They open their inbox looking for the next stock to watch.",
+    a: "Active traders and investors who signed up to get our free stock alerts. They open their inbox looking for the next stock to watch.",
   },
   {
     q: "Are sponsored placements disclosed?",
@@ -58,7 +58,7 @@ export default function AdvertisePage() {
           <div className="container-wide relative pb-16 pt-16 text-center md:pb-20 md:pt-24">
             <p className="eyebrow">Advertise with BigStocks</p>
             <h1 id="adv-hero" className="mx-auto mt-5 max-w-4xl text-[38px] font-semibold leading-[1.06] tracking-[-0.03em] sm:text-[50px] xl:text-[58px]">
-              Put your news in front of <span className="text-gradient">125,000 traders</span>, before the bell.
+              Put your news in front of <span className="text-gradient">125,000 traders</span>.
             </h1>
             <p className="mx-auto mt-6 max-w-2xl text-[17px] leading-relaxed text-muted">
               Your press release published on BigStocks.com and alerted to an audience that opens its inbox looking for the next stock to watch.

@@ -3,6 +3,7 @@ import type { FeedItem } from "@/lib/feeds/types";
 import { FORM_LABELS } from "@/lib/feeds/sources";
 import { TimeAgo } from "./TimeAgo";
 import { ArrowUpRight, Doc, Megaphone } from "./Icons";
+import { BellButton } from "./BellButton";
 
 /** One feed row. Ticker chip opens our ticker page; the headline opens the source. */
 export function FeedRow({ item, showTicker = true }: { item: FeedItem; showTicker?: boolean }) {
@@ -35,7 +36,10 @@ export function FeedRow({ item, showTicker = true }: { item: FeedItem; showTicke
           <TimeAgo iso={item.publishedAt} />
         </span>
       </span>
-      <ArrowUpRight className="mt-1 h-4 w-4 text-faint transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand" />
+      <span className="flex items-center gap-2">
+        {item.ticker && <BellButton variant="row" ticker={item.ticker} source="feed-row" />}
+        <ArrowUpRight className="hidden h-4 w-4 text-faint transition-all group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-brand sm:block" />
+      </span>
     </li>
   );
 }
