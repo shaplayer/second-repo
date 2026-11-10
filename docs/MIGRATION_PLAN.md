@@ -1,6 +1,6 @@
 # BigStocks: audit and migration plan (one system, free and license-free data)
 
-Status: **plan approved with the owner's decisions in §5; no code changed yet.** Written Nov 10, 2026.
+Status: **plan approved with the owner's decisions in §6; no code changed yet.** Written Nov 10, 2026.
 
 Repos audited:
 
@@ -134,14 +134,35 @@ Fix: one route map (`lib/site.ts`) that both the header and footer read; one com
 
 ---
 
-## 2. Target architecture
+## 2. Speed is the top priority (owner, Nov 10)
+
+Real-time news comes first. Every design choice below follows these targets, measured from the SEC's acceptance time:
+
+| Step | Target |
+|---|---|
+| Filing or press release appears on the site | ≤ 30 s |
+| Text alert to a follower of that company | ≤ 60 s |
+| Email alert | ≤ 90 s |
+
+How:
+1. **Poll fast, cheaply.** The current-filings feed is polled every **10 s** during EDGAR's filing hours (6:00 AM–10:00 PM ET, weekdays) and every 60 s otherwise, with conditional requests (`If-Modified-Since`/`ETag`), so an unchanged feed costs almost nothing and stays far under the SEC's 10 requests/second.
+2. **Never wait for AI before alerting.** An alert goes out the moment a filing is stored, using the company name, the plain-English form name, the 8-K item names and the press-release title. The Claude summary is written right after and appears on the site (and in digests) when ready.
+3. **Push, don't poll, in the browser.** New `filings` and `news` rows are pushed to open pages with Supabase Realtime (already used for chat). The feed shows each item the second it lands, with "12 s ago".
+4. **Texts first.** Per-company alerts (small audiences) go out immediately, text before email. List-wide broadcasts keep the existing texts-then-email order.
+5. **Measure it.** Store `accepted_at` (SEC), `ingested_at`, `notified_at`/`sent_at`. `/admin` shows the median and slowest delay for the last day; `feeds:check` warns when the poller falls behind.
+
+**Speed limits outside our control (owner should know):**
+- **Press releases on EDGAR can lag the newswires.** Companies often file the 8-K with the press release (Exhibit 99.1) at the same moment for earnings, but for other news the 8-K can come hours or days later (the rule allows up to four business days). With EDGAR as the only source, BigStocks is as fast as the SEC filing, not the wire.
+- **Text speed for big lists** depends on the carrier route. Standard 10DLC numbers send a limited number of texts per second, so a list-wide text to many thousands of people takes minutes. A dedicated short code is much faster but costs more and takes weeks to approve.
+
+## 3. Target architecture
 
 ```
 SEC EDGAR (free, public domain)
    │  one rate-limited client: ≤ 8 req/s total, descriptive User-Agent, conditional GETs, on-disk cache
    ▼
 Ingestion worker (always on, PM2 on the Droplet)
-   ├─ every 60 s: current-filings feed for 8-K, 10-Q, 10-K, 4, DEF 14A → filings
+   ├─ every 10 s (6 AM–10 PM ET; 60 s otherwise): current-filings feed for 8-K, 10-Q, 10-K, 4, DEF 14A → filings
    ├─ for each 8-K: open the filing index, find EX-99.1 → news (title, text, link to sec.gov)
    ├─ summarizer queue: new filings → summaries (Claude; Form 4 without AI)
    ├─ alert matcher: filings / news / picks → alert_events (one row per subscriber per item)
@@ -161,7 +182,7 @@ Why these choices:
 
 ---
 
-## 3. Unified schema (requirement 2)
+## 4. Unified schema (requirement 2)
 
 All tables in `public`. Row-level security on everywhere; only the server key writes, and users read only their own rows in `users`, `watchlists` and `alert_subscriptions`. The SQL below is an outline; the real migration files come in Phase 1.
 
@@ -276,10 +297,10 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ---
 
-## 4. Migration plan (phased; each phase ships on its own and can be rolled back)
+## 5. Migration plan (phased; each phase ships on its own and can be rolled back)
 
 ### Phase 0: prepare (no user-visible change)
-1. Decisions are in §5; the two still-open items are asked before the phase that needs them.
+1. Decisions are in §6; the two still-open items are asked before the phase that needs them.
 2. Back up both databases (`pg_dump`). Export the data site's `subscribers` and `ticker_follows` with their consent columns to cold storage; this is legal evidence and must survive.
 3. Set `SEC_USER_AGENT` to the real company name and a monitored email in every environment.
 4. Code home: the merged app lives in **this repo** (`second-repo`). The App's code is copied in under the same Next.js app (both are Next 15). The App repo is kept read-only for history.
@@ -299,7 +320,7 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ### Phase 2: ingestion worker (requirement 3)
 1. One SEC client: a token bucket at 8 requests/second shared by every job, User-Agent on every request, `If-Modified-Since`/`ETag` on feeds, `Retry-After`/exponential back-off on 403/429/5xx, raw responses cached on disk (filing indexes and exhibits never change, so cache them forever; feeds for 30 s).
-2. Poll `getcurrent` Atom feeds for `8-K, 10-Q, 10-K, 4, DEF 14A` every 60 s, upsert into `filings` (accession is the key, so re-reads are harmless). Catch up from the daily index on start-up if the worker was down.
+2. Poll `getcurrent` Atom feeds for `8-K, 10-Q, 10-K, 4, DEF 14A` every 10 s during EDGAR filing hours and every 60 s otherwise (§2), upsert into `filings` (accession is the key, so re-reads are harmless). Catch up from the daily index on start-up if the worker was down.
 3. For each 8-K, read the filing index page (`…-index.htm`), find the document whose Type is `EX-99.1`, strip HTML to text, and save to `news`. Items without an Ex. 99.1 have no `news` row.
 4. Nightly at 02:30 ET: `companyfacts` for `tracked` companies (watchlisted, followed, or in the top list) → compute the score → `fundamentals_snapshots`. Pages read the latest snapshot.
 5. Health: `app_state` keeps the last success time per job; `npm run feeds:check` is extended to cover each job.
@@ -313,7 +334,7 @@ alert_events (                                   -- the queue, the dedupe and th
 6. UI: every summary shows **"AI-generated summary. Can contain mistakes."** and **"Read the original filing on SEC.gov →"** (`source_url`). The "Explain" button reads from the database or queues a job; it never calls Claude in the page request.
 
 ### Phase 4: alerts (requirement 5)
-1. **Matcher:** for each new filing, news item or pick, insert one `alert_events` row per matching active subscription. The unique `(subscription_id, dedupe_key)` makes double sends impossible, even if the worker restarts mid-run.
+1. **Matcher (runs the moment a filing is stored, before any summary; §2):** for each new filing, news item or pick, insert one `alert_events` row per matching active subscription. The unique `(subscription_id, dedupe_key)` makes double sends impossible, even if the worker restarts mid-run.
 2. **Sender:** picks `queued` rows with `FOR UPDATE SKIP LOCKED`, sends, records `provider_message_id`; on failure, retries with back-off up to 5 times, then marks `failed`. Respects provider rate limits.
 3. **Digest:** `cadence='digest'` rows become `status='digest'`; one email per subscriber at 6:00 PM ET (computed in `America/New_York`, so it doesn't drift with daylight saving).
 4. **Email:** double opt-in for every list, including the main sign-up. RFC 8058 one-click unsubscribe (POST only); a plain link click opens a confirmation page instead of unsubscribing at once. Postal address in every email footer.
@@ -321,7 +342,7 @@ alert_events (                                   -- the queue, the dedupe and th
 6. Existing data-site SMS subscribers who joined under the old flow keep their recorded consent (they agreed to the exact text stored); they're not asked again.
 
 ### Phase 5: prices and UI (requirements 1 and 6)
-1. Delete `src/lib/databento.ts`, `/api/quotes`, `/api/chart`, `DATABENTO_API_KEY`, the Level 2 tab, page, links and copy, and `l2_trial_ends_at`. Remove the track record pages, components and pick-return code listed in §5 decision 2, and Stripe/membership per decision 6.
+1. Delete `src/lib/databento.ts`, `/api/quotes`, `/api/chart`, `DATABENTO_API_KEY`, the Level 2 tab, page, links and copy, and `l2_trial_ends_at`. Remove the track record pages, components and pick-return code listed in §6 decision 2, and Stripe/membership per decision 6.
 2. Add one `TradingViewWidget` component (loads the official embed script, takes `tv_symbol`) used for: ticker tape, homepage market overview and hotlists, stock-page symbol info and advanced chart, watchlist mini charts. Leave the widgets' own "by TradingView" link visible and add "Price data and charts by TradingView" in the footer. Update the Content Security Policy to allow TradingView's script and frames.
 3. Footer text becomes: "Prices and charts by TradingView. Filings, financials and press releases from SEC EDGAR. Summaries are AI-generated. Not investment advice."
 4. Apply the three fixes in §1.7 (example.com, routes, error states).
@@ -339,7 +360,7 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ---
 
-## 5. Decisions (owner, Nov 10, 2026)
+## 6. Decisions (owner, Nov 10, 2026)
 
 | # | Question | Decision |
 |---|---|---|
