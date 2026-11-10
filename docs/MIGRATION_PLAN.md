@@ -207,8 +207,7 @@ summaries (
 users (                                          -- replaces profiles; id = auth.users.id
   id uuid primary key references auth.users on delete cascade,
   email text not null, display_name text unique,
-  plan text not null default 'free', member_until timestamptz,
-  stripe_customer_id text, chat_banned boolean not null default false,
+  chat_banned boolean not null default false,  -- no plan/billing columns: everyone is free (decision 6)
   is_admin boolean not null default false,       -- replaces the shared admin password
   created_at timestamptz not null default now()
 )
@@ -302,7 +301,7 @@ alert_events (                                   -- the queue, the dedupe and th
 6. Existing data-site SMS subscribers who joined under the old flow keep their recorded consent (they agreed to the exact text stored); they're not asked again.
 
 ### Phase 5: prices and UI (requirements 1 and 6)
-1. Delete `src/lib/databento.ts`, `/api/quotes`, `/api/chart`, `DATABENTO_API_KEY`, the Level 2 tab, page, links and copy, and `l2_trial_ends_at`. Remove the track record pages, components and pick-return code listed in §5 decision 2.
+1. Delete `src/lib/databento.ts`, `/api/quotes`, `/api/chart`, `DATABENTO_API_KEY`, the Level 2 tab, page, links and copy, and `l2_trial_ends_at`. Remove the track record pages, components and pick-return code listed in §5 decision 2, and Stripe/membership per decision 6.
 2. Add one `TradingViewWidget` component (loads the official embed script, takes `tv_symbol`) used for: ticker tape, homepage market overview and hotlists, stock-page symbol info and advanced chart, watchlist mini charts. Leave the widgets' own "by TradingView" link visible and add "Price data and charts by TradingView" in the footer. Update the Content Security Policy to allow TradingView's script and frames.
 3. Footer text becomes: "Prices and charts by TradingView. Filings, financials and press releases from SEC EDGAR. Summaries are AI-generated. Not investment advice."
 4. Apply the three fixes in §1.7 (example.com, routes, error states).
@@ -311,7 +310,7 @@ alert_events (                                   -- the queue, the dedupe and th
 ### Phase 6: switch over and clean up
 1. Run the new worker alongside the old pollers with sending turned off for 48 h. Compare filings caught and alerts that would have gone out.
 2. Turn off Vercel Cron and the old data-site ingest, turn on sending in the new worker.
-3. Point the domains, update `APP_URL`, Supabase redirect URLs, the Stripe webhook and the Resend sender domain.
+3. Point the domains, update `APP_URL`, Supabase redirect URLs and the Resend sender domain. Delete the Stripe test-mode webhook endpoint.
 4. After two weeks without problems, drop the retired tables (after a final backup).
 
 **Checks for every phase:** `npm run lint` (type check), `npm test` (parsers and alert matching), a production build, and the link checker from §1.7b.
@@ -327,6 +326,7 @@ alert_events (                                   -- the queue, the dedupe and th
 | 3 | Level 2 | **Gone** everywhere: tab, page, links, copy, `l2_trial_ends_at`, membership wording. |
 | 4 | AI summary scope | **Only filings users want:** (a) when someone opens a filing or a stock page, its unsummarized filings are queued; (b) every new filing of a company that has at least one active email or SMS alert subscription. No market-wide summaries. Batch backfill only for companies with active subscriptions. |
 | 5 | Form 4 | Rule-based from the XML, no AI. |
+| 6 | Membership | **No paid plan for now; every signed-up user is a free member.** Remove Stripe entirely: `src/lib/stripe.ts`, `/api/billing/*`, `/api/stripe/webhook`, `scripts/stripe-setup.mjs`, `/membership`, `MembershipButtons`, `BillingActions`, the admin "grant membership" tool, the `stripe` package and `STRIPE_*` env vars. Picks marked members-only become visible to everyone (drop the `tier` gating and the lock in `PickCard`). Stripe was only ever in test mode, so no real subscribers are affected. |
 
 Scope changes that follow from these:
 - Drop `track_alert` from `alert_events.item_type`, and `published_alerts` from the kept tables.
@@ -334,4 +334,3 @@ Scope changes that follow from these:
 
 ### Still open (ask the owner before the phase that needs it)
 - **Hosting of the web app** (Vercel or the Droplet). Needed before Phase 6. The worker runs on the Droplet either way.
-- **Membership offer** now that Level 2 is gone (members-only picks only? price? pause sign-ups?). Needed before Phase 5 touches `/membership`.
