@@ -34,3 +34,11 @@ export function toE164US(input: string): string | null {
   if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(ten)) return null; // NANP area code + exchange
   return `+1${ten}`;
 }
+
+// export function toE164US(input: string): string | null {
+//   const d = String(input ?? "").replace(/\D/g, "");
+//   const ten = d.length === 10 ? d : d.length === 12 && d.startsWith("91") ? d.slice(2) : null;
+//   if (!ten || ten.length !== 10) return null;
+//   if (!/^[6-9]\d{9}$/.test(ten)) return null; // Indian mobile numbers start with 6-9
+//   return `+91${ten}`;
+// }

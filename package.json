@@ -22,7 +22,8 @@
     "nodemailer": "10.2.1",
     "pg": "8.16.3",
     "react": "19.2.9",
-    "react-dom": "19.2.9"
+    "react-dom": "19.2.9",
+    "twilio": "^6.3.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.18",

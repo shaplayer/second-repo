@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import twilio from "twilio";
 import type { SmsProvider } from "../types";
 
 /**
@@ -17,26 +18,32 @@ function validSignature(url: string, params: Record<string, string>, signature: 
 
 export const twilioProvider: SmsProvider = {
   name: "twilio",
-  configured: () =>
-    Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN &&
-      (process.env.TWILIO_MESSAGING_SERVICE_SID || process.env.TWILIO_FROM_NUMBER)),
+  configured: () => Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_API_KEY && process.env.TWILIO_API_SECRET && process.env.TWILIO_FROM_NUMBER),
   async send(to, body) {
-    const sid = process.env.TWILIO_ACCOUNT_SID!;
-    const form = new URLSearchParams({ To: to, Body: body });
-    if (process.env.TWILIO_MESSAGING_SERVICE_SID) form.set("MessagingServiceSid", process.env.TWILIO_MESSAGING_SERVICE_SID);
-    else form.set("From", process.env.TWILIO_FROM_NUMBER!);
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-      method: "POST",
-      headers: {
-        Authorization: "Basic " + Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64"),
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: form,
-      signal: AbortSignal.timeout(15000),
+    const accountSid = process.env.TWILIO_ACCOUNT_SID;
+    const apiKey = process.env.TWILIO_API_KEY;
+    const apiSecret = process.env.TWILIO_API_SECRET;
+    const from = process.env.TWILIO_FROM_NUMBER;
+
+    if (!accountSid || !apiKey || !apiSecret || !from) {
+      throw new Error("Twilio SMS configuration is incomplete");
+    }
+
+    const client = twilio(apiKey, apiSecret, { accountSid });
+
+    const message = await client.messages.create({
+      body: process.env.TWILIO_TRIAL_MODE ? "sms_appointment_reminders" : body,
+      from,
+      to,
     });
-    const data = (await res.json().catch(() => ({}))) as { sid?: string; message?: string };
-    if (!res.ok || !data.sid) throw new Error(`Twilio ${res.status}: ${data.message ?? "send failed"}`);
-    return { id: data.sid };
+
+    if (!message.sid) {
+      throw new Error("Twilio send failed: missing message SID");
+    }
+
+    console.log(message);
+
+    return { id: message.sid };
   },
   async parseInbound(req) {
     const params = Object.fromEntries(new URLSearchParams(await req.text())) as Record<string, string>;
