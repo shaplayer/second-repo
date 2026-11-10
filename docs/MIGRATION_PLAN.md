@@ -268,6 +268,7 @@ fundamentals_snapshots (
   ttm            jsonb not null,                 -- TTM revenue, profit, dividend per share, shares outstanding
   score          jsonb,                          -- the 4×4 grid
   verdict        text check (verdict in ('Strong','Mixed','Weak')),
+  rule_set       text not null default 'standard',  -- 'standard' or the growth rule set (decision 9)
   source_filed   date,                           -- newest filing the facts came from
   primary key (cik, as_of)
 )
@@ -410,6 +411,8 @@ alert_events (                                   -- the queue, the dedupe and th
 | 5 | Form 4 | Rule-based from the XML, no AI. |
 | 6 | Membership | **No paid plan for now; every signed-up user is a free member.** Remove Stripe entirely: `src/lib/stripe.ts`, `/api/billing/*`, `/api/stripe/webhook`, `scripts/stripe-setup.mjs`, `/membership`, `MembershipButtons`, `BillingActions`, the admin "grant membership" tool, the `stripe` package and `STRIPE_*` env vars. Picks marked members-only become visible to everyone (drop the `tier` gating and the lock in `PickCard`). Stripe was only ever in test mode, so no real subscribers are affected. |
 | 7 | Hosting | **Everything on the DigitalOcean Droplet**: web app and worker, both under PM2 (`ecosystem.config.cjs`). Leave Vercel: delete `vercel.json` (its crons move into the worker) and `.vercelignore`. Nginx in front of `next start` on port 3000, HTTPS with Let's Encrypt (certbot, auto-renew), gzip, and a 301 from `www` to the apex (or the reverse). Env vars live in a root-only `.env` on the server, never in git. `NEXT_PUBLIC_*` values are baked in at build time, so build on the server after changing them. Database stays on Supabase (sign-in and chat need it). |
+| 8 | Design | **Direction B "Search first"** from the mockups (https://claude.ai/artifact/YTrUT2piuGD3iidxid73s1): dark top band with big stock search and the candlestick strip, sign-up card overlapping the band, light functional body with the live feed (AI summary + "Alert me for $XYZ" on every item) and a sidebar (next free pick, health check, TradingView market overview). Stock, filing and watchlist pages follow the same light style. It's a starting point the owner will refine. |
+| 9 | Health check for emerging growth companies | Companies that check the SEC's "emerging growth company" box on their latest 10-K/10-Q get a **separate rule set**; the current 4 checks (sales grew, made a profit, profit grew, margin held) unfairly mark most young, pre-profit companies Weak. Same Strong / Mixed / Weak output and the same "not investment advice" note; the page says which rule set was used. To do: propose the growth rule set (checks, SEC data each one uses, thresholds) to the owner for approval before building it; it then becomes a `rule_set` column on `fundamentals_snapshots`. |
 
 ### Open
 - **Track record vs "win big" (decision 2, reopened; owner: "maybe").** Either (a) bring back an honest public record of every free alert, wins and losses, with the price staff record at send time and the day's close entered the same way (sponsored alerts shown separately and never counted as wins), or (b) keep it removed and drop "win big" style claims from the site, emails and texts, and talk about speed and news instead. Needed before Phase 5 (homepage copy) and before any marketing.
