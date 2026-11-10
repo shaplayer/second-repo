@@ -7,7 +7,7 @@ Repos audited:
 | Name in this plan | Repo | What it is today |
 |---|---|---|
 | **App** | `shaplayer/VideoCLAUDE-APP-MODEL-FOR-STOCKS` (live at bigstocks.vercel.app) | Next.js 15 on Vercel + Supabase. Stock pages, Strong/Mixed/Weak score, filings with Claude summaries, email alerts, accounts, watchlist, chat, picks, Stripe memberships. |
-| **Data site** | `shaplayer/second-repo` (this repo; confirmed as data.bigstocks.com) | Next.js 15 + plain Postgres on a DigitalOcean Droplet (PM2). Marketing homepage, live feed of SEC filings and newswire press releases, per-company email and SMS alerts, public track record, Advertise page. |
+| **Data site** | `shaplayer/second-repo`, branch `claude/sweet-noether-gski67` (Nov 6, the newest work; not yet merged into the default branch). This plan's branch is built on top of it. Confirmed as data.bigstocks.com | Next.js 15 + plain Postgres on a DigitalOcean Droplet (PM2). Homepage with the candlestick-chart hero, stock pick alerts sent from `/admin` by email (Resend) and text, the alerts bell (follow a ticker), live feed of SEC filings and newswire press releases, Free/Premium plans, public track record, Advertise page. |
 
 The goal: one system, one database, one ingestion worker, and only free, license-free data: SEC EDGAR (public domain), TradingView embed widgets for prices (shown, never stored), and our own Claude-written summaries.
 
@@ -40,7 +40,7 @@ TradingView widgets draw prices inside an iframe in the visitor's browser. **Our
 | Watchlist prices | App `Watchlist.tsx` | → one TradingView *Mini Chart* or *Symbol Overview* per row |
 | Picks track record (return vs S&P 500) | App `src/lib/picks.ts` | Needs entry and current prices. **Removed** (decision 2) |
 | Public alert track record (`alert_price`, `high_after`, `close_after`) | Data site `alerts` table | **Removed** (decision 2) |
-| Ticker tape | Data site `TickerTape.tsx` | → TradingView *Ticker Tape* widget |
+| Ticker tape | Data site `TickerTape.tsx` | Shows filing headlines, not prices, so it keeps working. A TradingView *Ticker Tape* can be added for prices |
 
 The Strong/Mixed/Weak score is **not** affected: it uses only SEC financial data.
 
@@ -93,6 +93,26 @@ Gaps:
 | Queue, retries | none (send inline in the cron request) | none (send inline in the worker loop) |
 | Digest | ✓ daily at 22:00 UTC (drifts an hour with daylight saving) | ✗ |
 | Consent evidence (TCPA) | n/a | ✓ exact `consent_text`, time, IP, user agent stored. **Must be carried over unchanged** |
+
+### 1.6b What the newest data-site branch adds, and how the decisions apply
+
+`claude/sweet-noether-gski67` reworked the homepage and added a sending system. Item by item:
+
+| What it added | Keep? | Notes |
+|---|---|---|
+| Homepage: headline, email + optional phone sign-up box, "Next pick" countdown (NYSE holidays in `lib/schedule.ts`), "What you get", FAQ | **Keep** | The design starting point (see the design review step in Phase 5). |
+| Candlestick-chart hero (`components/hero/ChartVisual.tsx`) | **Keep, fix the label** | It's a generated animation, not market data, but it carries a **"LIVE"** tag. On a stock-alert site that reads as a real live price. Remove the tag, or replace the animation with a real TradingView chart. |
+| Alerts bell pop-up (follow a ticker's press releases and filings) | **Keep** | Becomes per-company `alert_subscriptions`. |
+| `/admin` console + `lib/broadcast.ts` + `broadcasts` table: send a pick alert to the whole list by text then email via Resend batch, resumable by the worker | **Keep** | It's the pick-alert sender. Price becomes optional (staff-typed, never from a data feed). Move the shared admin password to `users.is_admin` later. |
+| Every send is logged on the permanent `alerts` table (ticker, time, price, sponsorship, tier) | **Keep internally, not public** | Decision 2 removes the public track record, but this log is the record of what was sent and of sponsored-alert disclosures (Securities Act §17(b)). It becomes an internal send history: no page, no win/loss. |
+| Premium: `/premium`, `Pricing` section, `plans` in `lib/site.ts`, `alerts.tier`, `subscribers.premium`, premium-only sends | **Remove** (decision 6) | Every alert goes to everyone on the list. |
+| "Level 2 (beta)" in the footer and in Premium's features | **Remove** (decision 3) | |
+| Track record: `/track-record`, `TrackRecordSection`, `TrackRecordTable`, `ResultsStrip`, nav item | **Remove** (decision 2) | |
+| Preview-only example rows (`lib/alerts-sample.ts`) | **Remove from runtime** | Same treatment as the example.com fixtures (§1.7a). |
+
+Still true on this branch: the main email sign-up has no confirmation email, and SMS sign-up sends a welcome text, not a "Reply YES" confirmation (both fixed in Phase 4). The footer now links both "Contact" and "For public companies" to `/advertise`, and still links Level 2 (both fixed in §1.7b).
+
+**Two "picks" systems.** The Vercel app has `picks` (posted on `/picks`, sponsored disclosures enforced, never deleted). The data site has pick alerts sent from `/admin` and logged in `alerts`. They're the same idea. Merge them into one `picks` table: each pick is posted on `/picks` **and** broadcast by text and email, with one disclosure rule and one never-delete rule.
 
 ### 1.7 Requested fixes (item 6)
 
@@ -250,7 +270,7 @@ alert_events (                                   -- the queue, the dedupe and th
 )
 ```
 
-**Kept as they are** (outside the nine core tables): `picks` (with its delete-refusing trigger and sponsored-disclosure check), `inquiries`, `chat_messages`, `chat_reports`, `chat_hidden`, `app_state`.
+**Kept** (outside the nine core tables): `picks`, merged with the data site's pick alerts (§1.6b): one table, delete-refusing trigger and sponsored-disclosure check kept, price optional; `broadcasts` (the resumable list-wide send job for each pick); `inquiries`, `chat_messages`, `chat_reports`, `chat_hidden`, `app_state`.
 
 **Retired after migration:** `seen_filings`, `digest_queue`, `filing_summaries`, `alert_subscribers`, `profiles` (kept as a read-only view during the switch), `subscribers`, `ticker_follows`, `news_items`.
 
@@ -324,7 +344,7 @@ alert_events (                                   -- the queue, the dedupe and th
 | # | Question | Decision |
 |---|---|---|
 | 1 | Is `second-repo` the data.bigstocks.com codebase? | Yes. It is the home of the merged app. |
-| 2 | Track records | **Eliminated.** Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The `alerts` table is **archived, not deleted**: `pg_dump` it to cold storage, then drop it in Phase 6 (sponsored-alert disclosures are a compliance record). |
+| 2 | Track records | **Eliminated.** Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The data site's `alerts` table stops being public; its rows are copied into the merged `picks` table as send history (never deleted: sponsored-alert disclosures are a compliance record). |
 | 3 | Level 2 | **Gone** everywhere: tab, page, links, copy, `l2_trial_ends_at`, membership wording. |
 | 4 | AI summary scope | **Only filings users want:** (a) when someone opens a filing or a stock page, its unsummarized filings are queued; (b) every new filing of a company that has at least one active email or SMS alert subscription. No market-wide summaries. Batch backfill only for companies with active subscriptions. |
 | 5 | Form 4 | Rule-based from the XML, no AI. |
