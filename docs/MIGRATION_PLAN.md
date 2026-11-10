@@ -155,6 +155,19 @@ How:
 - **Press releases on EDGAR can lag the newswires.** Companies often file the 8-K with the press release (Exhibit 99.1) at the same moment for earnings, but for other news the 8-K can come hours or days later (the rule allows up to four business days). With EDGAR as the only source, BigStocks is as fast as the SEC filing, not the wire.
 - **Text speed for big lists** depends on the carrier route. Standard 10DLC numbers send a limited number of texts per second, so a list-wide text to many thousands of people takes minutes. A dedicated short code is much faster but costs more and takes weeks to approve.
 
+## 2b. Free stock alerts are the growth engine (owner, Nov 10)
+
+Second priority, alongside speed. The business loop: **free pick alerts that perform → a bigger list → sponsors (public companies) pay to reach it.** The product has to serve each step:
+
+| Step | What the site needs |
+|---|---|
+| People sign up | The homepage's main job, next to the live news: one short email + phone box above the fold, on every page, and in the alerts bell. Double opt-in stays (required), so the confirmation email and the "Reply YES" text must be instant and clear, and the site tracks how many sign-ups finish confirming. |
+| People stay | Pick alerts are fast (texts first) and each one says plainly what it is. One-click unsubscribe and STOP stay easy, which keeps carriers and inbox providers from blocking the list. |
+| Sponsors pay | `/advertise` ("For public companies") linked from the footer and the admin. **Audience numbers come from the database**, not hard-coded: today `lib/site.ts` claims 125,000 subscribers, 1M daily impressions and 5,000 daily clicks, and sponsors will check them. Each sponsored send gets a report: texts and emails sent, delivered, link clicks (via our own redirect links, disclosed in the privacy policy). |
+| Sponsored alerts stay legal | Every sponsored alert names who paid, how much and in what form (Securities Act §17(b)); already enforced in the database and kept in the merged `picks` table. A written rule that staff never trade against a pick or sell into a promotion. Securities-lawyer review before launch (paid promotions plus in-house picks). |
+
+**"Win big" claims need proof.** Marketing that says the free alerts win big is a performance claim. It has to be backed by a complete record of every alert (wins and losses), or it's misleading, and it's exactly what regulators look for in stock-promotion sites. This reopens decision 2; see the open item in §6.
+
 ## 3. Target architecture
 
 ```
@@ -365,12 +378,15 @@ alert_events (                                   -- the queue, the dedupe and th
 | # | Question | Decision |
 |---|---|---|
 | 1 | Is `second-repo` the data.bigstocks.com codebase? | Yes. It is the home of the merged app. |
-| 2 | Track records | **Eliminated.** Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The data site's `alerts` table stops being public; its rows are copied into the merged `picks` table as send history (never deleted: sponsored-alert disclosures are a compliance record). |
+| 2 | Track records | **Eliminated** (reopened, see Open below). Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The data site's `alerts` table stops being public; its rows are copied into the merged `picks` table as send history (never deleted: sponsored-alert disclosures are a compliance record). |
 | 3 | Level 2 | **Gone** everywhere: tab, page, links, copy, `l2_trial_ends_at`, membership wording. |
 | 4 | AI summary scope | **Only filings users want:** (a) when someone opens a filing or a stock page, its unsummarized filings are queued; (b) every new filing of a company that has at least one active email or SMS alert subscription. No market-wide summaries. Batch backfill only for companies with active subscriptions. |
 | 5 | Form 4 | Rule-based from the XML, no AI. |
 | 6 | Membership | **No paid plan for now; every signed-up user is a free member.** Remove Stripe entirely: `src/lib/stripe.ts`, `/api/billing/*`, `/api/stripe/webhook`, `scripts/stripe-setup.mjs`, `/membership`, `MembershipButtons`, `BillingActions`, the admin "grant membership" tool, the `stripe` package and `STRIPE_*` env vars. Picks marked members-only become visible to everyone (drop the `tier` gating and the lock in `PickCard`). Stripe was only ever in test mode, so no real subscribers are affected. |
 | 7 | Hosting | **Everything on the DigitalOcean Droplet**: web app and worker, both under PM2 (`ecosystem.config.cjs`). Leave Vercel: delete `vercel.json` (its crons move into the worker) and `.vercelignore`. Nginx in front of `next start` on port 3000, HTTPS with Let's Encrypt (certbot, auto-renew), gzip, and a 301 from `www` to the apex (or the reverse). Env vars live in a root-only `.env` on the server, never in git. `NEXT_PUBLIC_*` values are baked in at build time, so build on the server after changing them. Database stays on Supabase (sign-in and chat need it). |
+
+### Open
+- **Track record vs "win big" (decision 2, reopened by §2b).** Either (a) bring back an honest public record of every free alert, wins and losses, with the price staff record at send time and the day's close entered the same way (sponsored alerts shown separately and never counted as wins), or (b) keep it removed and drop "win big" style claims from the site, emails and texts, and talk about speed and news instead. Needed before Phase 5 (homepage copy) and before any marketing.
 
 Scope changes that follow from these:
 - Drop `track_alert` from `alert_events.item_type`, and `published_alerts` from the kept tables.
