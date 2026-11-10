@@ -11,7 +11,7 @@ export const SMS_CONSENT_TEXT =
   "Message and data rates may apply. Reply HELP for help or STOP to cancel.";
 
 export const SMS_WELCOME =
-  "BigStocks: You're in! Pre-market stock alerts will arrive by text. Msg freq varies. Msg & data rates may apply. " +
+  "BigStocks: You're in! Stock alerts will arrive by text. Msg freq varies. Msg & data rates may apply. " +
   "Reply HELP for help, STOP to cancel.";
 
 export const SMS_FOOTER = "Reply STOP to opt out";
@@ -34,3 +34,12 @@ export function toE164US(input: string): string | null {
   if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(ten)) return null; // NANP area code + exchange
   return `+1${ten}`;
 }
+
+/**
+ * One checkbox covering both free stock picks and one company's news/filings (bell pop-up).
+ * Stored by both /api/subscribe and /api/follow when the form sends consent: "combined".
+ */
+export const smsCombinedConsentText = (ticker: string) =>
+  "By checking this box, I agree to receive recurring automated marketing text messages from BigStocks " +
+  `(stock alerts, plus $${ticker} company news and SEC filings) at the number provided. Consent is not a condition of purchase. ` +
+  "Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to cancel.";

@@ -4,6 +4,7 @@ import { Footer } from "./sections/Footer";
 import { SignupForm } from "./SignupForm";
 import { FeedSearch } from "./FeedSearch";
 import { ArrowRight } from "./Icons";
+import { BellButton } from "./BellButton";
 import { links } from "@/lib/site";
 import { SOURCE_CREDITS } from "@/lib/feeds/sources";
 
@@ -19,9 +20,11 @@ export function SectionTabs({ active }: { active: "news" | "filings" | null }) {
 }
 
 /** Shared layout for /news, /filings and /news/[ticker]. */
-export function NewsShell({ header, toolbar, children, sidebarTop, searchBase = "/news", searchValue = "" }: {
+export function NewsShell({ header, toolbar, children, sidebarTop, searchBase = "/news", searchValue = "", ticker }: {
   header: React.ReactNode; toolbar?: React.ReactNode; children: React.ReactNode;
   sidebarTop?: React.ReactNode; searchBase?: string; searchValue?: string;
+  /** On a company page: the bell follows this ticker. */
+  ticker?: string;
 }) {
   return (
     <>
@@ -31,6 +34,11 @@ export function NewsShell({ header, toolbar, children, sidebarTop, searchBase = 
           <div className="grid-bg pointer-events-none absolute inset-0" aria-hidden="true" />
           <div className="pointer-events-none absolute right-[-10%] top-[-40%] h-[520px] w-[520px] rounded-full bg-brand/[0.06] blur-[120px]" aria-hidden="true" />
           <div className="container-wide relative py-12 md:py-16">
+            {/* The bell sits top-right, in plain view, so getting alerts is one click away. */}
+            <div className="mb-6 flex justify-end md:absolute md:right-10 md:top-12 md:mb-0">
+              <BellButton ticker={ticker} source={ticker ? "ticker-page-bell" : "news-bell"}
+                label={ticker ? undefined : "Get news alerts by email & text"} className="!h-11 !text-[14px]" />
+            </div>
             {header}
             <div className="mt-8 max-w-2xl"><FeedSearch key={searchValue} base={searchBase} defaultValue={searchValue} /></div>
           </div>
@@ -38,7 +46,10 @@ export function NewsShell({ header, toolbar, children, sidebarTop, searchBase = 
 
         <div className="container-wide grid grid-cols-[minmax(0,1fr)] gap-6 py-10 md:py-14 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
           <div className="min-w-0">
-            {toolbar && <div className="mb-4 flex flex-wrap items-center gap-2">{toolbar}</div>}
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">{toolbar}</div>
+              <BellButton ticker={ticker} source="feed-toolbar-bell" label={ticker ? `Alert me on $${ticker}` : "Alert me"} className="!h-9" />
+            </div>
             <div className="card overflow-clip">{children}</div>
             <p className="mt-4 text-[12px] text-faint">
               Sources: {SOURCE_CREDITS}. Headlines link to the original source. Times are US Eastern.
@@ -48,9 +59,9 @@ export function NewsShell({ header, toolbar, children, sidebarTop, searchBase = 
           <aside className="min-w-0 space-y-5 lg:sticky lg:top-24 lg:self-start" aria-label="Get alerts">
             {sidebarTop}
             <div className="card p-6">
-              <p className="eyebrow">Free alerts</p>
-              <h2 className="mt-3 text-[19px] font-semibold leading-snug tracking-tight">Get the next pick before the bell.</h2>
-              <p className="mt-2 text-[14px] text-muted">Pre-market stock alerts by email or text. Free.</p>
+              <p className="eyebrow">Free stock alerts</p>
+              <h2 className="mt-3 text-[19px] font-semibold leading-snug tracking-tight">Get our next winning pick.</h2>
+              <p className="mt-2 text-[14px] text-muted">By email or text. Pre-market or at the open. Free.</p>
               <div className="mt-5"><SignupForm source="news-sidebar" size="md" /></div>
             </div>
             <Link href={`${links.advertise}?package=spotlight#contact`} className="card group block p-6 transition-colors hover:border-brand/40">

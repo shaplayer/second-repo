@@ -1,10 +1,24 @@
 # BigStocks.com
 
-Website for BigStocks: free pre-market stock alerts by email and SMS, live press release + SEC filings pages,
-Level 2 link, public track record preview and an Advertise teaser for sponsors.
+Website for BigStocks: winning stock alerts plus real-time press releases and SEC filings, by email and SMS.
+Free and Premium ($49/mo) plans, a pulsing alerts bell on every page, long-term picks and a public track record.
 Plan: [`docs/HOMEPAGE_PLAN.md`](docs/HOMEPAGE_PLAN.md).
 
-**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind 4 · Postgres · cobe (globe)
+**Stack:** Next.js 15 (App Router) · TypeScript · Tailwind 4 · Postgres
+
+## Homepage
+
+Order: hero + sign-up → long-term picks → what you get → live news & filings → pricing → track record → FAQ → final sign-up.
+Ad packages are not on the homepage; `/advertise` is linked from the footer only.
+
+**Hero:** live candlestick chart (`components/hero/ChartVisual.tsx`) with a small ticker search bubble.
+**Next pick:** countdown to the 8:00–9:30 AM ET pick window on trading days (`components/sections/NextPick.tsx`,
+`lib/schedule.ts`). Add next year's NYSE holidays to `lib/schedule.ts` each December.
+
+**Sign-up box** (`components/AlertForm.tsx`): email and phone in one box; the phone is optional, tagged "Fastest". The same form is in the
+**bell pop-up** (`components/AlertsDialog.tsx`), which opens from the bell in the top menu, next to every feed, and on
+each feed row. With a ticker it offers that company's press releases & SEC filings plus free stock picks (both checked),
+using one combined SMS consent (`smsCombinedConsentText` in `lib/sms-consent.ts`, stored with each sign-up).
 
 ## Run locally
 
@@ -41,6 +55,27 @@ It tests every source from your server, then the database, and prints the fix fo
 
 Scripts read `.env` if it exists, and otherwise use variables already set in the environment (PM2, systemd, shell).
 
+## Sending alerts (Resend + text)
+
+1. In `.env`: `EMAIL_PROVIDER=resend`, `RESEND_API_KEY=re_...`, `EMAIL_FROM="BigStocks <alerts@yourdomain.com>"`
+   (verify that domain in Resend first), your SMS provider (`SMS_PROVIDER` + keys), `COMPANY_POSTAL_ADDRESS`
+   (required in marketing email), and `ADMIN_PASSWORD`.
+2. `npm run db:init` (adds premium members, unsubscribe links and the send queue; safe to re-run).
+3. Open **`/admin`**, sign in, enter ticker + price, pick **Free alert** (everyone) or **Premium pick** (members with
+   `subscribers.premium = true`), add a note, send yourself a test, then **Review → Send now**.
+
+What happens when you hit send:
+- The alert is written to the public track record with the current time. It can't be edited or deleted.
+- Texts go out first (`SMS_RATE_PER_SEC`), then emails through Resend, 100 per request (`EMAIL_BATCHES_PER_SEC`).
+  Each email has a one-click unsubscribe link (`/unsubscribe`). Progress shows on `/admin`.
+- Premium picks are hidden on the public track record until 4:00 PM ET that day, then shown with a Premium label.
+- People following that ticker with the bell get free alerts too (not premium ones).
+- If the server restarts mid-send, `npm run ingest` (PM2) picks up where it left off.
+
+Automating it: `POST /api/alerts` with `Authorization: Bearer $ALERTS_API_KEY` and `"send": true` does the same
+thing from another tool (see `app/api/alerts/route.ts`). Premium members: when your payment system confirms a
+payment, set `premium = true` on that subscriber (and back to `false` when they cancel).
+
 ## Swap in your existing pages
 
 Set these in `.env` (no code change needed):
@@ -48,8 +83,12 @@ Set these in `.env` (no code change needed):
 | Variable | Points to |
 |---|---|
 | `NEXT_PUBLIC_LEVEL2_URL` | Your Level 2 streaming landing page |
-| `NEXT_PUBLIC_ALERTS_URL` | Your pre-market alert countdown page |
-| `NEXT_PUBLIC_ALERT_HOUR_ET` / `NEXT_PUBLIC_ALERT_MINUTE_ET` | Homepage countdown target, US Eastern (default 8:00) |
+| `NEXT_PUBLIC_ALERTS_URL` | Your stock alert page |
+| `NEXT_PUBLIC_PREMIUM_CHECKOUT_URL` | Premium checkout (PayPal, crypto…). Until set, "Get Premium" opens the `/premium` waitlist form |
+| `ADMIN_PASSWORD` | Password for `/admin`, where you send alerts (12+ characters) |
+
+Alert timing isn't a fixed clock time (8:00, 8:30 or at the open), so the site says "pre-market or at the open"
+(`alertTiming` in `lib/site.ts`). Premium price and plan features are in `plans` in the same file.
 
 Other links and the audience number live in `lib/site.ts`. `NEXT_PUBLIC_*` values are baked in at build time, so rebuild after changing them.
 
@@ -164,7 +203,7 @@ Send from an address on your own domain, with SPF/DKIM set up at your email prov
 ## Track record (`/track-record`)
 
 Public, permanent record of every alert: stats (win rate, average move to close and to high), a results strip,
-filters (organic / sponsored, wins / losses, ticker), methodology, and a full CSV download (`/api/alerts/export`).
+filters (organic / sponsored, wins / losses, ticker) and methodology. A CSV export for the team is at `/api/alerts/export` (not linked on the site).
 It shows real rows only; until the first alert is logged it says "launching soon".
 
 **Permanent by design:** the database blocks deleting alerts and blocks changing ticker, time, price or sponsorship

@@ -78,8 +78,9 @@ BEGIN
      OR NEW.alert_price IS DISTINCT FROM OLD.alert_price
      OR NEW.sponsored IS DISTINCT FROM OLD.sponsored
      OR NEW.sponsor_comp IS DISTINCT FROM OLD.sponsor_comp
-     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
-    RAISE EXCEPTION 'alert %: ticker, time, price and sponsorship are permanent', OLD.id;
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at
+     OR to_jsonb(NEW) -> 'tier' IS DISTINCT FROM to_jsonb(OLD) -> 'tier' THEN
+    RAISE EXCEPTION 'alert %: ticker, time, price, tier and sponsorship are permanent', OLD.id;
   END IF;
   NEW.updated_at := now();
   RETURN NEW;
@@ -117,3 +118,41 @@ CREATE INDEX IF NOT EXISTS ticker_follows_active_idx ON ticker_follows (ticker) 
 -- When followers were told about each item (NULL = not yet processed)
 ALTER TABLE news_items ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
 ALTER TABLE alerts ADD COLUMN IF NOT EXISTS notified_at TIMESTAMPTZ;
+
+-- Free vs Premium alerts. Free alerts go to everyone on the list; premium alerts go to premium
+-- members only and stay hidden on the public track record until 4:00 PM ET on the alert day.
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS tier TEXT NOT NULL DEFAULT 'free';
+DO $$ BEGIN
+  ALTER TABLE alerts ADD CONSTRAINT alerts_tier_check CHECK (tier IN ('free', 'premium'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS message TEXT;   -- the note sent with the alert
+
+-- Premium members (your payment system sets this) and a per-person unsubscribe link for alert emails.
+ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS premium BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE subscribers ADD COLUMN IF NOT EXISTS unsub_token TEXT;
+ALTER TABLE subscribers ALTER COLUMN unsub_token SET DEFAULT replace(gen_random_uuid()::text, '-', '');
+UPDATE subscribers SET unsub_token = replace(gen_random_uuid()::text, '-', '') WHERE unsub_token IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS subscribers_unsub_token_idx ON subscribers (unsub_token);
+
+-- One row per alert send. The site starts sending right away; the ingest worker resumes
+-- anything interrupted (cursors = last subscriber id done per channel).
+CREATE TABLE IF NOT EXISTS broadcasts (
+  id            BIGSERIAL PRIMARY KEY,
+  alert_id      BIGINT REFERENCES alerts(id),
+  tier          TEXT NOT NULL CHECK (tier IN ('free', 'premium')),
+  channels      TEXT[] NOT NULL,
+  subject       TEXT NOT NULL,
+  text_body     TEXT NOT NULL,      -- {{UNSUB}} is replaced per person
+  html_body     TEXT NOT NULL,
+  sms_body      TEXT NOT NULL,
+  status        TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'sending', 'done', 'failed')),
+  email_cursor  BIGINT NOT NULL DEFAULT 0,
+  sms_cursor    BIGINT NOT NULL DEFAULT 0,
+  emails_sent   INT NOT NULL DEFAULT 0,
+  texts_sent    INT NOT NULL DEFAULT 0,
+  failed        INT NOT NULL DEFAULT 0,
+  error         TEXT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  finished_at   TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS broadcasts_open_idx ON broadcasts (id) WHERE status IN ('queued', 'sending');

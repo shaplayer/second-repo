@@ -2,11 +2,12 @@ import type { EmailProvider } from "./types";
 import { consoleEmail } from "./providers/console";
 import { smtpEmail } from "./providers/smtp";
 import { webhookEmail } from "./providers/webhook";
+import { resendEmail } from "./providers/resend";
 
 export type { EmailMessage, EmailProvider } from "./types";
 
 /** Register new providers here, then set EMAIL_PROVIDER=<name>. */
-const PROVIDERS: Record<string, EmailProvider> = { console: consoleEmail, smtp: smtpEmail, webhook: webhookEmail };
+const PROVIDERS: Record<string, EmailProvider> = { console: consoleEmail, smtp: smtpEmail, webhook: webhookEmail, resend: resendEmail };
 
 export function emailProvider(): EmailProvider {
   const name = (process.env.EMAIL_PROVIDER || "console").toLowerCase();

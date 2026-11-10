@@ -6,7 +6,7 @@ import { SMS_CONSENT_TEXT, SMS_PROGRAM } from "@/lib/sms-consent";
 export const metadata: Metadata = { title: "SMS Terms | BigStocks" };
 
 const SECTIONS: [string, string][] = [
-  ["Program", `${SMS_PROGRAM} sends recurring automated text messages with pre-market stock alerts and related market updates, and, for companies you follow, that company\u2019s press releases, SEC filings and BigStocks alerts, to people who sign up on BigStocks.com.`],
+  ["Program", `${SMS_PROGRAM} sends recurring automated text messages with stock alerts and related market updates, and, for companies you follow, that company\u2019s press releases, SEC filings and BigStocks alerts, to people who sign up on BigStocks.com.`],
   ["Consent", `You join by entering your mobile number and checking the consent box, which reads: "${SMS_CONSENT_TEXT}" Consent is not a condition of any purchase.`],
   ["Message frequency", "Message frequency varies, typically on market days."],
   ["Cost", "BigStocks text alerts are free. Message and data rates from your mobile carrier may apply."],

@@ -7,9 +7,9 @@ export function FinalCta() {
       <div className="container-wide relative flex flex-col items-center py-24 text-center md:py-32">
         <p className="eyebrow">Join free</p>
         <h2 id="final-title" className="mt-4 max-w-2xl text-[34px] font-semibold leading-[1.08] tracking-tight md:text-[48px]">
-          Get the next alert <span className="text-gradient">before the bell.</span>
+          Don&apos;t miss the next move. <span className="text-gradient">Get it first.</span>
         </h2>
-        <p className="mt-4 max-w-md text-[16px] text-muted">Join 125,000+ traders who start their morning with BigStocks.</p>
+        <p className="mt-4 max-w-md text-[16px] text-muted">Join 125,000+ investors getting BigStocks alerts, news and filings by email and text.</p>
         <div className="mt-9 flex w-full justify-center"><SignupForm source="home-footer" /></div>
       </div>
     </section>
