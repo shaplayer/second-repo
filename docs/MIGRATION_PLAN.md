@@ -1,13 +1,13 @@
 # BigStocks: audit and migration plan (one system, free and license-free data)
 
-Status: **plan only, no code changed yet.** Written Nov 10, 2026.
+Status: **plan approved with the owner's decisions in §5; no code changed yet.** Written Nov 10, 2026.
 
 Repos audited:
 
 | Name in this plan | Repo | What it is today |
 |---|---|---|
 | **App** | `shaplayer/VideoCLAUDE-APP-MODEL-FOR-STOCKS` (live at bigstocks.vercel.app) | Next.js 15 on Vercel + Supabase. Stock pages, Strong/Mixed/Weak score, filings with Claude summaries, email alerts, accounts, watchlist, chat, picks, Stripe memberships. |
-| **Data site** | `shaplayer/second-repo` (this repo; assumed to be data.bigstocks.com, see Open decisions) | Next.js 15 + plain Postgres on a DigitalOcean Droplet (PM2). Marketing homepage, live feed of SEC filings and newswire press releases, per-company email and SMS alerts, public track record, Advertise page. |
+| **Data site** | `shaplayer/second-repo` (this repo; confirmed as data.bigstocks.com) | Next.js 15 + plain Postgres on a DigitalOcean Droplet (PM2). Marketing homepage, live feed of SEC filings and newswire press releases, per-company email and SMS alerts, public track record, Advertise page. |
 
 The goal: one system, one database, one ingestion worker, and only free, license-free data: SEC EDGAR (public domain), TradingView embed widgets for prices (shown, never stored), and our own Claude-written summaries.
 
@@ -38,8 +38,8 @@ TradingView widgets draw prices inside an iframe in the visitor's browser. **Our
 | Price, change, 52-week range, chart | App stock page | → TradingView *Symbol Info* + *Advanced Chart* widgets |
 | Market value, P/E, dividend yield | App stock page | `price × shares`. **Can't be computed.** Show TradingView *Fundamental Data* widget instead, or drop these three stats |
 | Watchlist prices | App `Watchlist.tsx` | → one TradingView *Mini Chart* or *Symbol Overview* per row |
-| Picks track record (return vs S&P 500) | App `src/lib/picks.ts` | Needs entry and current prices. **Breaks** (see Open decision 2) |
-| Public alert track record (`alert_price`, `high_after`, `close_after`) | Data site `alerts` table | Same. **Breaks** for new alerts (see Open decision 2) |
+| Picks track record (return vs S&P 500) | App `src/lib/picks.ts` | Needs entry and current prices. **Removed** (decision 2) |
+| Public alert track record (`alert_price`, `high_after`, `close_after`) | Data site `alerts` table | **Removed** (decision 2) |
 | Ticker tape | Data site `TickerTape.tsx` | → TradingView *Ticker Tape* widget |
 
 The Strong/Mixed/Weak score is **not** affected: it uses only SEC financial data.
@@ -239,7 +239,7 @@ alert_subscriptions (
 alert_events (                                   -- the queue, the dedupe and the audit log
   id bigserial primary key,
   subscription_id bigint not null references alert_subscriptions,
-  item_type text not null check (item_type in ('filing','news','pick','track_alert')),
+  item_type text not null check (item_type in ('filing','news','pick')),
   item_ref text not null,                        -- accession / news id / pick id
   dedupe_key text not null,                      -- e.g. 'filing:0000320193-26-000018'
   status text not null default 'queued'
@@ -251,7 +251,7 @@ alert_events (                                   -- the queue, the dedupe and th
 )
 ```
 
-**Kept as they are** (outside the nine core tables): `picks` (with its delete-refusing trigger and sponsored-disclosure check), the data site's `alerts` track-record table (renamed `published_alerts` so it isn't confused with `alert_events`; its guard trigger is kept), `inquiries`, `chat_messages`, `chat_reports`, `chat_hidden`, `app_state`.
+**Kept as they are** (outside the nine core tables): `picks` (with its delete-refusing trigger and sponsored-disclosure check), `inquiries`, `chat_messages`, `chat_reports`, `chat_hidden`, `app_state`.
 
 **Retired after migration:** `seen_filings`, `digest_queue`, `filing_summaries`, `alert_subscribers`, `profiles` (kept as a read-only view during the switch), `subscribers`, `ticker_follows`, `news_items`.
 
@@ -260,7 +260,7 @@ alert_events (                                   -- the queue, the dedupe and th
 ## 4. Migration plan (phased; each phase ships on its own and can be rolled back)
 
 ### Phase 0: prepare (no user-visible change)
-1. Decide the open questions in §5.
+1. Decisions are in §5; the two still-open items are asked before the phase that needs them.
 2. Back up both databases (`pg_dump`). Export the data site's `subscribers` and `ticker_follows` with their consent columns to cold storage; this is legal evidence and must survive.
 3. Set `SEC_USER_AGENT` to the real company name and a monitored email in every environment.
 4. Code home: the merged app lives in **this repo** (`second-repo`). The App's code is copied in under the same Next.js app (both are Next 15). The App repo is kept read-only for history.
@@ -286,10 +286,10 @@ alert_events (                                   -- the queue, the dedupe and th
 5. Health: `app_state` keeps the last success time per job; `npm run feeds:check` is extended to cover each job.
 
 ### Phase 3: AI summaries (requirement 4)
-1. A `summaries` job takes new filings in this order: followed or watchlisted tickers first, then 8-Ks with an Ex. 99.1, then the rest within a daily budget (see Open decision 4).
+1. A `summaries` job summarizes only (a) filings someone opens, queued from the page, and (b) new filings of companies with at least one active alert subscription (decision 4). Nothing market-wide.
 2. Keep the current request shape: `claude-opus-5-5`, structured JSON output, `effort: "low"`, server-side refusal fallback (`fallbacks: "default"`), stop-reason checks. Save `model`, `prompt_version`, and token counts.
 3. Locking: `INSERT ... ON CONFLICT DO NOTHING` on a "claim" row before calling Claude, so two workers never summarize the same filing.
-4. Backfill and re-generation after a prompt change: Message Batches API (half price, results within 24 h). The refusal-fallback parameter isn't accepted on Batches, so a refused item is re-run once on the live path.
+4. Backfill (subscribed companies only) and re-generation after a prompt change: Message Batches API (half price, results within 24 h). The refusal-fallback parameter isn't accepted on Batches, so a refused item is re-run once on the live path.
 5. Form 4 stays rule-based (no AI, exact numbers from the XML).
 6. UI: every summary shows **"AI-generated summary. Can contain mistakes."** and **"Read the original filing on SEC.gov →"** (`source_url`). The "Explain" button reads from the database or queues a job; it never calls Claude in the page request.
 
@@ -302,7 +302,7 @@ alert_events (                                   -- the queue, the dedupe and th
 6. Existing data-site SMS subscribers who joined under the old flow keep their recorded consent (they agreed to the exact text stored); they're not asked again.
 
 ### Phase 5: prices and UI (requirements 1 and 6)
-1. Delete `src/lib/databento.ts`, `/api/quotes`, `/api/chart`, `DATABENTO_API_KEY`, the Level 2 tab, page, links and copy, and `l2_trial_ends_at`.
+1. Delete `src/lib/databento.ts`, `/api/quotes`, `/api/chart`, `DATABENTO_API_KEY`, the Level 2 tab, page, links and copy, and `l2_trial_ends_at`. Remove the track record pages, components and pick-return code listed in §5 decision 2.
 2. Add one `TradingViewWidget` component (loads the official embed script, takes `tv_symbol`) used for: ticker tape, homepage market overview and hotlists, stock-page symbol info and advanced chart, watchlist mini charts. Leave the widgets' own "by TradingView" link visible and add "Price data and charts by TradingView" in the footer. Update the Content Security Policy to allow TradingView's script and frames.
 3. Footer text becomes: "Prices and charts by TradingView. Filings, financials and press releases from SEC EDGAR. Summaries are AI-generated. Not investment advice."
 4. Apply the three fixes in §1.7 (example.com, routes, error states).
@@ -318,14 +318,20 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ---
 
-## 5. Open decisions (needed before Phase 1)
+## 5. Decisions (owner, Nov 10, 2026)
 
-1. **Is `second-repo` the data.bigstocks.com codebase?** Nothing in any repo names that host; I matched it from its features (Level 2 links, EDGAR/newswire feed, SMS alerts, example.com fixtures). Also: should the merged web app run on Vercel or on the Droplet? (The worker goes on the Droplet either way.)
-2. **Price-based track records.** Without a price feed we can't compute pick returns vs the S&P 500 or the alert track record's win/loss. Options:
-   - (a) Freeze both records as of the switch date and show past results only.
-   - (b) Staff enter the price by hand at publish time, labeled as such.
-   - (c) Drop the return numbers and keep the dated log of picks and alerts.
-   I recommend (a) plus (c) for new entries. Check (b) against TradingView's terms before choosing it.
-3. **Membership.** Level 2 was the planned paid centerpiece. Without it, the paid plan is members-only picks. Keep $49/month, change it, or pause sign-ups?
-4. **Summary scope and budget.** The App's own estimate is about $0.02–0.10 per announcement and ~$0.50 per annual report. Summarizing every 8-K, 10-Q, 10-K and DEF 14A market-wide can cost thousands of dollars during earnings season. Recommended: always summarize followed/watchlisted companies and 8-Ks with a press release, everything else on request, with a daily cap.
-5. **Form 4 summaries.** Keep them rule-based (no AI)? Recommended: yes; they're free and exact.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Is `second-repo` the data.bigstocks.com codebase? | Yes. It is the home of the merged app. |
+| 2 | Track records | **Eliminated.** Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The `alerts` table is **archived, not deleted**: `pg_dump` it to cold storage, then drop it in Phase 6 (sponsored-alert disclosures are a compliance record). |
+| 3 | Level 2 | **Gone** everywhere: tab, page, links, copy, `l2_trial_ends_at`, membership wording. |
+| 4 | AI summary scope | **Only filings users want:** (a) when someone opens a filing or a stock page, its unsummarized filings are queued; (b) every new filing of a company that has at least one active email or SMS alert subscription. No market-wide summaries. Batch backfill only for companies with active subscriptions. |
+| 5 | Form 4 | Rule-based from the XML, no AI. |
+
+Scope changes that follow from these:
+- Drop `track_alert` from `alert_events.item_type`, and `published_alerts` from the kept tables.
+- Phase 3 step 1 becomes: summarize on view and for subscribed companies only (decision 4).
+
+### Still open (ask the owner before the phase that needs it)
+- **Hosting of the web app** (Vercel or the Droplet). Needed before Phase 6. The worker runs on the Droplet either way.
+- **Membership offer** now that Level 2 is gone (members-only picks only? price? pause sign-ups?). Needed before Phase 5 touches `/membership`.
