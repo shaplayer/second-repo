@@ -134,9 +134,18 @@ Fix: one route map (`lib/site.ts`) that both the header and footer read; one com
 
 ---
 
-## 2. Speed is the top priority (owner, Nov 10)
+## 2. Priorities (owner, Nov 10)
 
-Real-time news comes first. Every design choice below follows these targets, measured from the SEC's acceptance time:
+In order. When two pull against each other, the higher one wins.
+
+1. **Value on the website.** People come and come back because the site is useful: real-time news (§2.1), plain-English filings and summaries, and clear stock pages.
+2. **Opt-ins, built into that value.** Every useful thing on the site is also a reason to sign up (§2.2). The list is what sponsors pay for.
+3. **Free pick alerts that perform.** They grow and keep the list (§2.3).
+4. **Sponsors.** Public companies pay to reach the list (§2.4).
+
+### 2.1 Value: real-time news
+
+Targets, measured from the SEC's acceptance time:
 
 | Step | Target |
 |---|---|
@@ -151,22 +160,39 @@ How:
 4. **Texts first.** Per-company alerts (small audiences) go out immediately, text before email. List-wide broadcasts keep the existing texts-then-email order.
 5. **Measure it.** Store `accepted_at` (SEC), `ingested_at`, `notified_at`/`sent_at`. `/admin` shows the median and slowest delay for the last day; `feeds:check` warns when the poller falls behind.
 
-**Speed limits outside our control (owner should know):**
+Limits outside our control:
 - **Press releases on EDGAR can lag the newswires.** Companies often file the 8-K with the press release (Exhibit 99.1) at the same moment for earnings, but for other news the 8-K can come hours or days later (the rule allows up to four business days). With EDGAR as the only source, BigStocks is as fast as the SEC filing, not the wire.
 - **Text speed for big lists** depends on the carrier route. Standard 10DLC numbers send a limited number of texts per second, so a list-wide text to many thousands of people takes minutes. A dedicated short code is much faster but costs more and takes weeks to approve.
 
-## 2b. Free stock alerts are the growth engine (owner, Nov 10)
+### 2.2 Opt-ins, built into the value
 
-Second priority, alongside speed. The business loop: **free pick alerts that perform → a bigger list → sponsors (public companies) pay to reach it.** The product has to serve each step:
+The content leads; sign-up sits right next to it, never in front of it (no pop-up that blocks reading).
 
-| Step | What the site needs |
+| Where the visitor is | The opt-in offered there |
 |---|---|
-| People sign up | The homepage's main job, next to the live news: one short email + phone box above the fold, on every page, and in the alerts bell. Double opt-in stays (required), so the confirmation email and the "Reply YES" text must be instant and clear, and the site tracks how many sign-ups finish confirming. |
-| People stay | Pick alerts are fast (texts first) and each one says plainly what it is. One-click unsubscribe and STOP stay easy, which keeps carriers and inbox providers from blocking the list. |
-| Sponsors pay | `/advertise` ("For public companies") linked from the footer and the admin. **Audience numbers come from the database**, not hard-coded: today `lib/site.ts` claims 125,000 subscribers, 1M daily impressions and 5,000 daily clicks, and sponsors will check them. Each sponsored send gets a report: texts and emails sent, delivered, link clicks (via our own redirect links, disclosed in the privacy policy). |
-| Sponsored alerts stay legal | Every sponsored alert names who paid, how much and in what form (Securities Act §17(b)); already enforced in the database and kept in the merged `picks` table. A written rule that staff never trade against a pick or sell into a promotion. Securities-lawyer review before launch (paid promotions plus in-house picks). |
+| Live news feed (homepage, `/news`) | Bell on each row: "Get $XYZ news by text or email" |
+| A stock page | "Get alerts for $XYZ" next to the company name, plus the watchlist button (sign-in) |
+| A filing summary | "Get the next one from $XYZ the moment it posts" under the summary |
+| Homepage hero | One short email + optional phone box beside the live feed, for the free pick alerts |
+| Every page footer | The same short box |
 
-**"Win big" claims need proof.** Marketing that says the free alerts win big is a performance claim. It has to be backed by a complete record of every alert (wins and losses), or it's misleading, and it's exactly what regulators look for in stock-promotion sites. This reopens decision 2; see the open item in §6.
+Rules for every opt-in:
+- Double opt-in (email confirmation link; text "Reply YES"). The confirmation email and text go out instantly and say exactly what the person will get.
+- The SMS consent wording shown is stored word for word with the time, IP and page (TCPA).
+- Following one company never silently adds someone to the pick-alert list; each list is its own checkbox.
+- One-click unsubscribe and STOP always work, which keeps the list deliverable.
+- Measured: sign-ups per page, and how many finish confirming.
+
+### 2.3 Free pick alerts
+
+Pick alerts are fast (texts first) and each one says plainly what it is and whether it's sponsored. **"Win big" is a performance claim:** it must be backed by a complete record of every alert, wins and losses, or left out of the copy. See the open item in §6.
+
+### 2.4 Sponsors
+
+- `/advertise` ("For public companies") linked from the footer and the admin.
+- **Audience numbers come from the database**, not hard-coded. Today `lib/site.ts` claims 125,000 subscribers, 1M daily impressions and 5,000 daily clicks; sponsors will check them.
+- Each sponsored send gets a report: texts and emails sent, delivered, and link clicks (via our own redirect links, disclosed in the privacy policy).
+- Every sponsored alert names who paid, how much and in what form (Securities Act §17(b)); already enforced in the database and kept in the merged `picks` table. A written rule that staff never trade against a pick or sell into a promotion. Securities-lawyer review before launch.
 
 ## 3. Target architecture
 
@@ -333,7 +359,7 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ### Phase 2: ingestion worker (requirement 3)
 1. One SEC client: a token bucket at 8 requests/second shared by every job, User-Agent on every request, `If-Modified-Since`/`ETag` on feeds, `Retry-After`/exponential back-off on 403/429/5xx, raw responses cached on disk (filing indexes and exhibits never change, so cache them forever; feeds for 30 s).
-2. Poll `getcurrent` Atom feeds for `8-K, 10-Q, 10-K, 4, DEF 14A` every 10 s during EDGAR filing hours and every 60 s otherwise (§2), upsert into `filings` (accession is the key, so re-reads are harmless). Catch up from the daily index on start-up if the worker was down.
+2. Poll `getcurrent` Atom feeds for `8-K, 10-Q, 10-K, 4, DEF 14A` every 10 s during EDGAR filing hours and every 60 s otherwise (§2.1), upsert into `filings` (accession is the key, so re-reads are harmless). Catch up from the daily index on start-up if the worker was down.
 3. For each 8-K, read the filing index page (`…-index.htm`), find the document whose Type is `EX-99.1`, strip HTML to text, and save to `news`. Items without an Ex. 99.1 have no `news` row.
 4. Nightly at 02:30 ET: `companyfacts` for `tracked` companies (watchlisted, followed, or in the top list) → compute the score → `fundamentals_snapshots`. Pages read the latest snapshot.
 5. Health: `app_state` keeps the last success time per job; `npm run feeds:check` is extended to cover each job.
@@ -347,7 +373,7 @@ alert_events (                                   -- the queue, the dedupe and th
 6. UI: every summary shows **"AI-generated summary. Can contain mistakes."** and **"Read the original filing on SEC.gov →"** (`source_url`). The "Explain" button reads from the database or queues a job; it never calls Claude in the page request.
 
 ### Phase 4: alerts (requirement 5)
-1. **Matcher (runs the moment a filing is stored, before any summary; §2):** for each new filing, news item or pick, insert one `alert_events` row per matching active subscription. The unique `(subscription_id, dedupe_key)` makes double sends impossible, even if the worker restarts mid-run.
+1. **Matcher (runs the moment a filing is stored, before any summary; §2.1):** for each new filing, news item or pick, insert one `alert_events` row per matching active subscription. The unique `(subscription_id, dedupe_key)` makes double sends impossible, even if the worker restarts mid-run.
 2. **Sender:** picks `queued` rows with `FOR UPDATE SKIP LOCKED`, sends, records `provider_message_id`; on failure, retries with back-off up to 5 times, then marks `failed`. Respects provider rate limits.
 3. **Digest:** `cadence='digest'` rows become `status='digest'`; one email per subscriber at 6:00 PM ET (computed in `America/New_York`, so it doesn't drift with daylight saving).
 4. **Email:** double opt-in for every list, including the main sign-up. RFC 8058 one-click unsubscribe (POST only); a plain link click opens a confirmation page instead of unsubscribing at once. Postal address in every email footer.
@@ -378,7 +404,7 @@ alert_events (                                   -- the queue, the dedupe and th
 | # | Question | Decision |
 |---|---|---|
 | 1 | Is `second-repo` the data.bigstocks.com codebase? | Yes. It is the home of the merged app. |
-| 2 | Track records | **Eliminated** (reopened, see Open below). Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The data site's `alerts` table stops being public; its rows are copied into the merged `picks` table as send history (never deleted: sponsored-alert disclosures are a compliance record). |
+| 2 | Track records | **Eliminated for now** (reopened, see Open below). Remove the public track record (`/track-record`, `/api/alerts/export`, `ResultsStrip`, `ResultBadge`, homepage track-record section) and the picks' return-vs-S&P numbers (`picksWithResults`). Picks themselves stay, as a dated list with their sponsored disclosures. The data site's `alerts` table stops being public; its rows are copied into the merged `picks` table as send history (never deleted: sponsored-alert disclosures are a compliance record). |
 | 3 | Level 2 | **Gone** everywhere: tab, page, links, copy, `l2_trial_ends_at`, membership wording. |
 | 4 | AI summary scope | **Only filings users want:** (a) when someone opens a filing or a stock page, its unsummarized filings are queued; (b) every new filing of a company that has at least one active email or SMS alert subscription. No market-wide summaries. Batch backfill only for companies with active subscriptions. |
 | 5 | Form 4 | Rule-based from the XML, no AI. |
@@ -386,7 +412,7 @@ alert_events (                                   -- the queue, the dedupe and th
 | 7 | Hosting | **Everything on the DigitalOcean Droplet**: web app and worker, both under PM2 (`ecosystem.config.cjs`). Leave Vercel: delete `vercel.json` (its crons move into the worker) and `.vercelignore`. Nginx in front of `next start` on port 3000, HTTPS with Let's Encrypt (certbot, auto-renew), gzip, and a 301 from `www` to the apex (or the reverse). Env vars live in a root-only `.env` on the server, never in git. `NEXT_PUBLIC_*` values are baked in at build time, so build on the server after changing them. Database stays on Supabase (sign-in and chat need it). |
 
 ### Open
-- **Track record vs "win big" (decision 2, reopened by §2b).** Either (a) bring back an honest public record of every free alert, wins and losses, with the price staff record at send time and the day's close entered the same way (sponsored alerts shown separately and never counted as wins), or (b) keep it removed and drop "win big" style claims from the site, emails and texts, and talk about speed and news instead. Needed before Phase 5 (homepage copy) and before any marketing.
+- **Track record vs "win big" (decision 2, reopened; owner: "maybe").** Either (a) bring back an honest public record of every free alert, wins and losses, with the price staff record at send time and the day's close entered the same way (sponsored alerts shown separately and never counted as wins), or (b) keep it removed and drop "win big" style claims from the site, emails and texts, and talk about speed and news instead. Needed before Phase 5 (homepage copy) and before any marketing.
 
 Scope changes that follow from these:
 - Drop `track_alert` from `alert_events.item_type`, and `published_alerts` from the kept tables.
