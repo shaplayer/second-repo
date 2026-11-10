@@ -130,7 +130,7 @@ Ingestion worker (always on, PM2 on the Droplet)
    ▼
 One Postgres (Supabase: also handles sign-in and live chat)
    ▼
-Next.js web app (pages and APIs read the database only, never call the SEC on a page view)
+Next.js web app on the same Droplet (PM2 `bigstocks-web` behind Nginx + HTTPS; pages and APIs read the database only, never call the SEC on a page view)
    └─ prices: TradingView embed widgets in the browser, "by TradingView" attribution kept visible
 ```
 
@@ -309,9 +309,11 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ### Phase 6: switch over and clean up
 1. Run the new worker alongside the old pollers with sending turned off for 48 h. Compare filings caught and alerts that would have gone out.
-2. Turn off Vercel Cron and the old data-site ingest, turn on sending in the new worker.
-3. Point the domains, update `APP_URL`, Supabase redirect URLs and the Resend sender domain. Delete the Stripe test-mode webhook endpoint.
-4. After two weeks without problems, drop the retired tables (after a final backup).
+2. Deploy the merged app to the Droplet: `git pull`, `npm ci`, `npm run build`, `pm2 reload ecosystem.config.cjs`, `pm2 save`. Check it on the Droplet's address before any DNS change.
+3. At SiteGround DNS, point `bigstocks.com` (and `www`, `data`) at the Droplet. Lower the DNS TTL a day ahead so the switch is fast and can be undone fast. Issue the certificates once DNS resolves.
+4. Update `APP_URL`, the Supabase Site URL and redirect URLs, the Google sign-in redirect, the Twilio inbound webhook URL and the Resend sender domain. Delete the Stripe test-mode webhook endpoint.
+5. Turn off the old data-site ingest, turn on sending in the new worker. Keep bigstocks.vercel.app up for a week with a redirect to the new domain, then delete the Vercel project.
+6. After two weeks without problems, drop the retired tables (after a final backup).
 
 **Checks for every phase:** `npm run lint` (type check), `npm test` (parsers and alert matching), a production build, and the link checker from §1.7b.
 
@@ -327,10 +329,9 @@ alert_events (                                   -- the queue, the dedupe and th
 | 4 | AI summary scope | **Only filings users want:** (a) when someone opens a filing or a stock page, its unsummarized filings are queued; (b) every new filing of a company that has at least one active email or SMS alert subscription. No market-wide summaries. Batch backfill only for companies with active subscriptions. |
 | 5 | Form 4 | Rule-based from the XML, no AI. |
 | 6 | Membership | **No paid plan for now; every signed-up user is a free member.** Remove Stripe entirely: `src/lib/stripe.ts`, `/api/billing/*`, `/api/stripe/webhook`, `scripts/stripe-setup.mjs`, `/membership`, `MembershipButtons`, `BillingActions`, the admin "grant membership" tool, the `stripe` package and `STRIPE_*` env vars. Picks marked members-only become visible to everyone (drop the `tier` gating and the lock in `PickCard`). Stripe was only ever in test mode, so no real subscribers are affected. |
+| 7 | Hosting | **Everything on the DigitalOcean Droplet**: web app and worker, both under PM2 (`ecosystem.config.cjs`). Leave Vercel: delete `vercel.json` (its crons move into the worker) and `.vercelignore`. Nginx in front of `next start` on port 3000, HTTPS with Let's Encrypt (certbot, auto-renew), gzip, and a 301 from `www` to the apex (or the reverse). Env vars live in a root-only `.env` on the server, never in git. `NEXT_PUBLIC_*` values are baked in at build time, so build on the server after changing them. Database stays on Supabase (sign-in and chat need it). |
 
 Scope changes that follow from these:
 - Drop `track_alert` from `alert_events.item_type`, and `published_alerts` from the kept tables.
 - Phase 3 step 1 becomes: summarize on view and for subscribed companies only (decision 4).
 
-### Still open (ask the owner before the phase that needs it)
-- **Hosting of the web app** (Vercel or the Droplet). Needed before Phase 6. The worker runs on the Droplet either way.
