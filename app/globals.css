@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* The old Vercel app is kept for reference only (see legacy/vercel-app/README-LEGACY.md): never scan it for class names. */
+@source not "../legacy";
 
 @theme {
   --color-bg: #07090a;

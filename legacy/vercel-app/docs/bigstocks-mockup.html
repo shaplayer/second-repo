@@ -1,0 +1,591 @@
+<title>BigStocks Homepage Mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,500..900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one 1120px column. Sticky brand bar with the style switch, then the chosen homepage or a stock page with one-click tabs. */
+:root {
+  --bg: #ffffff;
+  --surface: #f3f6f4;
+  --fg: #0b0f0d;
+  --muted: #59655f;
+  --line: #dde5e0;
+  --green: #08884b;
+  --on-green: #ffffff;
+  --green-soft: #e3f4ea;
+  --down: #c3352b;
+  --down-soft: #fbe9e7;
+  --warn: #a86b10;
+  --warn-soft: #fbf0dc;
+  --shadow: 0 10px 30px rgba(8, 30, 18, .12);
+  --f-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #080b09; --surface: #111714; --fg: #f1f5f2; --muted: #95a39c; --line: #222d27;
+    --green: #2ec274; --on-green: #04140b; --green-soft: #10291c; --down: #f2685c; --down-soft: #2d1513;
+    --warn: #e6a640; --warn-soft: #2b2010; --shadow: 0 10px 30px rgba(0,0,0,.5); color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #080b09; --surface: #111714; --fg: #f1f5f2; --muted: #95a39c; --line: #222d27;
+  --green: #2ec274; --on-green: #04140b; --green-soft: #10291c; --down: #f2685c; --down-soft: #2d1513;
+  --warn: #e6a640; --warn-soft: #2b2010; --shadow: 0 10px 30px rgba(0,0,0,.5); color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; }
+
+/* Top bar */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--fg); color: var(--bg); }
+.bar .wrap { display: flex; align-items: center; gap: 16px; padding-block: 10px; flex-wrap: wrap; }
+.logo { font-family: var(--f-display); font-weight: 900; font-stretch: 112%; font-size: 22px; letter-spacing: -.02em; background: none; border: 0; padding: 0; color: inherit; }
+.logo b { color: var(--green); font-weight: 900; }
+.switch { display: flex; border: 1px solid color-mix(in srgb, var(--bg) 30%, transparent); border-radius: 999px; padding: 3px; }
+.switch button { border: 0; background: none; color: inherit; padding: 5px 12px; border-radius: 999px; font-size: 13px; opacity: .75; }
+.switch button[aria-pressed="true"] { background: var(--green); color: var(--on-green); opacity: 1; font-weight: 600; }
+.bar .spacer { flex: 1; }
+.btn { border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 8px; padding: 8px 14px; font-weight: 600; font-size: 14px; }
+.btn.primary { background: var(--green); border-color: var(--green); color: var(--on-green); }
+.bar .btn { border-color: transparent; }
+.sample { background: var(--warn-soft); color: var(--warn); font-size: 12.5px; text-align: center; padding: 6px 16px; }
+
+/* Shared bits */
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; letter-spacing: -.01em; }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.up { color: var(--green); } .dn { color: var(--down); }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; font-size: 12.5px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.v-Strong { background: var(--green-soft); color: var(--green); }
+.v-Mixed { background: var(--warn-soft); color: var(--warn); }
+.v-Weak { background: var(--down-soft); color: var(--down); }
+.tick { font-family: var(--f-mono); font-weight: 500; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 1px 7px; font-size: 12.5px; color: var(--fg); }
+a.mention, button.mention { color: var(--green); font-weight: 600; background: none; border: 0; padding: 0; font-family: var(--f-mono); }
+.panel { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); min-width: 0; }
+.panel > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.panel > header h3 { font-size: 17px; }
+.rows > * + * { border-top: 1px solid var(--line); }
+.row-btn { display: grid; width: 100%; text-align: left; background: none; border: 0; padding: 12px 16px; gap: 2px; }
+.row-btn:hover { background: var(--surface); }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+/* Search */
+.search { display: flex; gap: 8px; }
+.search input { flex: 1; min-width: 0; border: 2px solid var(--fg); border-radius: 10px; padding: 12px 14px; background: var(--bg); font-size: 17px; }
+.search input:focus { outline: none; border-color: var(--green); }
+.search .btn { padding-inline: 20px; font-size: 16px; }
+.err { color: var(--down); font-size: 13px; min-height: 20px; margin-top: 4px; }
+
+/* BigStocks home */
+.hero { padding-block: 44px 28px; display: grid; gap: 16px; max-width: 720px; }
+.hero h1 { font-size: clamp(32px, 6vw, 56px); font-weight: 900; font-stretch: 110%; line-height: 1.02; }
+.hero h1 em { font-style: normal; color: var(--green); }
+.hero p { margin: 0; color: var(--muted); font-size: 17px; max-width: 58ch; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; gap: 8px; align-items: center; border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 6px 12px; font-size: 13.5px; }
+.chip:hover { border-color: var(--green); }
+.grid-2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 20px; padding-block: 8px 48px; align-items: start; }
+.feed-item { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; text-align: left; width: 100%; background: none; border: 0; padding: 14px 16px; }
+.feed-item:hover { background: var(--surface); }
+.feed-time { font-family: var(--f-mono); font-size: 13px; color: var(--muted); padding-top: 2px; }
+.feed-item strong { display: block; font-size: 15px; }
+.kind { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--green); }
+.live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--green); font-weight: 600; }
+.live::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+/* Google Finance style home */
+.idx-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding-block: 20px 16px; }
+.idx { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; display: grid; gap: 2px; }
+.idx .n { font-size: 13px; font-weight: 600; }
+.gf-search { padding-block: 4px 20px; max-width: 640px; }
+.gf-search input { border-width: 1px; border-color: var(--line); border-radius: 999px; background: var(--surface); }
+.wl-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto 76px auto; gap: 12px; align-items: center; }
+.chg-box { font-family: var(--f-mono); font-size: 13px; font-weight: 500; border-radius: 6px; padding: 2px 6px; text-align: right; }
+.chg-box.up { background: var(--green-soft); } .chg-box.dn { background: var(--down-soft); }
+
+/* Stock page */
+.back { background: none; border: 0; color: var(--muted); padding: 16px 0 0; font-size: 14px; }
+.s-head { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: end; justify-content: space-between; padding-block: 8px 16px; }
+.s-head h1 { font-size: clamp(26px, 4.5vw, 40px); font-weight: 800; font-stretch: 105%; }
+.price { font-family: var(--f-mono); font-size: 34px; font-weight: 500; line-height: 1.1; }
+.s-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.tabs button { border: 0; background: none; padding: 10px 14px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; white-space: nowrap; }
+.tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--green); }
+.tabs .lock { font-size: 11px; background: var(--fg); color: var(--bg); border-radius: 4px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; }
+.tab-body { padding-block: 20px 56px; display: grid; gap: 20px; }
+
+.answer { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 0; overflow: hidden; }
+.answer .verdict { padding: 20px; display: grid; gap: 10px; align-content: start; }
+.answer .verdict .big { font-family: var(--f-display); font-weight: 900; font-stretch: 115%; font-size: 44px; line-height: 1; }
+.verdict.v-Strong .big { color: var(--green); } .verdict.v-Mixed .big { color: var(--warn); } .verdict.v-Weak .big { color: var(--down); }
+.verdict.v-Strong { background: var(--green-soft); } .verdict.v-Mixed { background: var(--warn-soft); } .verdict.v-Weak { background: var(--down-soft); }
+.verdict .pill { display: none; }
+.checks { padding: 8px 20px; }
+.check { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; padding-block: 10px; }
+.check + .check { border-top: 1px solid var(--line); }
+.qs { display: flex; gap: 4px; align-items: center; }
+.q { width: 22px; height: 22px; border-radius: 5px; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+.q.y { background: var(--green); color: var(--on-green); } .q.n { background: var(--down-soft); color: var(--down); }
+.q-score { font-family: var(--f-mono); font-size: 13px; width: 34px; text-align: right; color: var(--muted); }
+.disc { font-size: 12px; color: var(--muted); }
+
+.chart-box { padding: 12px 16px 16px; }
+.ranges { display: flex; gap: 4px; }
+.ranges button { border: 1px solid transparent; background: none; border-radius: 6px; padding: 3px 9px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.ranges button[aria-pressed="true"] { border-color: var(--line); background: var(--surface); color: var(--fg); }
+svg.chart { width: 100%; height: auto; display: block; }
+svg.chart text { fill: var(--muted); font-family: var(--f-mono); font-size: 11px; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stat { padding: 12px 16px; border-top: 1px solid var(--line); display: grid; gap: 2px; }
+.stat:not(:nth-child(3n+1)) { border-left: 1px solid var(--line); }
+.stat .v { font-family: var(--f-mono); font-size: 15px; }
+
+.news-item { padding: 14px 16px; display: grid; gap: 4px; }
+.news-meta { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); }
+.why { background: var(--surface); border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+.care { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; border-radius: 4px; padding: 1px 6px; }
+.care.High { background: var(--green); color: var(--on-green); } .care.Medium { background: var(--warn-soft); color: var(--warn); } .care.Low { background: var(--surface); color: var(--muted); border: 1px solid var(--line); }
+
+/* Level 2 */
+.l2-wrap { position: relative; }
+.l2-locked .l2-inner { filter: blur(5px); pointer-events: none; user-select: none; }
+.l2-gate { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; }
+.gate-card { background: var(--bg); border: 1px solid var(--line); box-shadow: var(--shadow); border-radius: 14px; padding: 24px; max-width: 400px; display: grid; gap: 12px; text-align: center; }
+.gate-card h3 { font-size: 22px; }
+.pressure { padding: 16px; display: grid; gap: 8px; }
+.pbar { display: flex; height: 14px; border-radius: 999px; overflow: hidden; }
+.pbar .b { background: var(--green); } .pbar .a { background: var(--down); }
+.book { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.book table { width: 100%; border-collapse: collapse; font-family: var(--f-mono); font-variant-numeric: tabular-nums; font-size: 13px; }
+.book th { font-family: var(--f-body); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); text-align: left; padding: 8px 12px; font-weight: 600; }
+.book td { padding: 5px 12px; position: relative; }
+.book td.sz { text-align: right; }
+.book .bid td:first-child { color: var(--green); } .book .ask td:first-child { color: var(--down); }
+.book .bid { background: linear-gradient(to left, var(--green-soft) var(--w), transparent var(--w)); }
+.book .ask { background: linear-gradient(to right, var(--down-soft) var(--w), transparent var(--w)); }
+.book > div + div { border-left: 1px solid var(--line); }
+.tns { max-height: 340px; overflow-y: auto; }
+.tns table { width: 100%; border-collapse: collapse; font-family: var(--f-mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+.tns td, .tns th { padding: 5px 16px; text-align: left; }
+.tns th { font-family: var(--f-body); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); position: sticky; top: 0; background: var(--bg); }
+.tns td:last-child, .tns th:last-child { text-align: right; }
+
+/* Contact */
+.contact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.kv { display: grid; gap: 2px; padding: 12px 16px; }
+.copy { font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); margin-left: 8px; }
+
+/* Chat */
+.chat-list { max-height: 380px; overflow-y: auto; }
+.msg { padding: 10px 16px; display: grid; gap: 2px; }
+.msg .who { font-weight: 600; font-size: 13.5px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.msg .who span { font-weight: 400; color: var(--muted); font-size: 12px; }
+.msg .rep { margin-left: auto; background: none; border: 0; color: var(--muted); font-size: 12px; padding: 0; }
+.msg.flagged { opacity: .55; }
+.chat-form { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--line); }
+.chat-form input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--surface); }
+
+/* Modal + toast */
+.scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; padding: 16px; z-index: 50; }
+.modal { background: var(--bg); border-radius: 16px; padding: 24px; width: 100%; max-width: 420px; display: grid; gap: 14px; box-shadow: var(--shadow); max-height: 90vh; overflow-y: auto; }
+.modal h3 { font-size: 24px; font-weight: 800; }
+.modal .btn { width: 100%; padding: 12px; font-size: 15px; }
+.opt { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.opt input { margin-top: 4px; accent-color: var(--green); }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-weight: 600; font-size: 14px; z-index: 60; box-shadow: var(--shadow); }
+
+@media (max-width: 820px) {
+  .grid-2, .answer, .contact-grid { grid-template-columns: minmax(0, 1fr); }
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat:not(:nth-child(3n+1)) { border-left: 0; }
+  .stat:nth-child(even) { border-left: 1px solid var(--line); }
+  .book { grid-template-columns: minmax(0, 1fr); }
+  .book > div + div { border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 560px) {
+  .idx-row { grid-template-columns: minmax(0, 1fr); }
+  .wl-row { grid-template-columns: 56px minmax(0, 1fr) auto; }
+  .wl-row .hide-sm { display: none; }
+  .switch button { padding: 5px 9px; font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .live::before { animation: none; } }
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <button class="logo" data-act="home" aria-label="BigStocks home">Big<b>Stocks</b></button>
+    <div class="switch" role="group" aria-label="Homepage style">
+      <button data-act="style:bs" id="sw-bs">BigStocks style</button>
+      <button data-act="style:gf" id="sw-gf">Google Finance style</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn primary" data-act="signup" id="auth-btn">Sign up free</button>
+  </div>
+</header>
+<div class="sample">Design mockup with sample data. Prices, news and filings are made up, not real quotes or advice.</div>
+<main id="app" class="wrap"></main>
+<div id="modal-root"></div>
+<div id="toast-root"></div>
+
+<script>
+const S = {
+  AAPL: { name: "Apple Inc.", ex: "NASDAQ", price: 231.40, chg: 1.12, cap: "3.44T", pe: "35.1", rev: "$408B", profit: "$99B", div: "0.44%", lo: 169.21, hi: 237.23,
+    checks: [[1,1,1,1],[1,1,1,1],[1,1,0,1],[0,0,1,0]],
+    plain: "Sales and profit grew every quarter this year. Insiders mostly sold shares, which is common at big companies.",
+    news: [
+      ["6:00 AM", "Press release", "Apple announces date for next quarterly earnings call", "Earnings come out in about three weeks. Expect the price to move more than usual that week."],
+      ["6:30 AM", "Reuters", "Apple supplier says phone orders are running ahead of last year", "A sign that sales of the newest phone are strong. Good for next quarter's numbers."],
+      ["Yesterday 4:05 PM", "Bloomberg", "Apple expands share buyback program", "Apple is buying back its own stock, which leaves fewer shares and tends to support the price."]],
+    filings: [
+      ["10-Q", "Quarterly report", "Yesterday 4:30 PM", "Sales up 6% vs last year. Profit up 9%. Cash on hand still larger than debt.", "High"],
+      ["Form 4", "Insider sale", "Oct 7, 4:12 PM", "An executive sold 40,000 shares as part of a pre-planned schedule. Routine, not a warning sign by itself.", "Low"]] },
+  NVDA: { name: "NVIDIA Corp.", ex: "NASDAQ", price: 182.65, chg: 2.41, cap: "4.45T", pe: "52.8", rev: "$165B", profit: "$86B", div: "0.02%", lo: 86.62, hi: 189.40,
+    checks: [[1,1,1,1],[1,1,1,1],[1,1,1,1],[0,0,0,1]],
+    plain: "Sales grew fast every quarter and profit margins keep getting wider. The stock is expensive compared with its earnings.",
+    news: [
+      ["6:00 AM", "Press release", "NVIDIA announces new data center chip partnership", "A new large customer for its AI chips. More future sales."],
+      ["7:15 AM", "CNBC", "Analysts raise NVIDIA price targets ahead of earnings", "Wall Street expects another strong quarter. Expectations are high, so a small miss could hurt."],
+      ["Yesterday 2:40 PM", "Reuters", "Export rules update could affect some chip sales abroad", "Some overseas sales may be limited. Worth watching."]],
+    filings: [
+      ["8-K", "Important company news", "Today 6:01 AM", "NVIDIA signed a multi-year supply deal. Official filing that backs up this morning's press release.", "High"],
+      ["10-Q", "Quarterly report", "Aug 27, 4:20 PM", "Sales up 56% vs last year. Data center chips are now most of the business.", "High"]] },
+  MSFT: { name: "Microsoft Corp.", ex: "NASDAQ", price: 512.30, chg: 0.38, cap: "3.81T", pe: "37.6", rev: "$282B", profit: "$102B", div: "0.65%", lo: 344.79, hi: 555.45,
+    checks: [[1,1,1,1],[1,1,1,1],[1,0,1,1],[0,1,0,0]],
+    plain: "Steady growth from cloud and software. Profitable every quarter. Pays a small dividend.",
+    news: [
+      ["6:30 AM", "Press release", "Microsoft raises quarterly dividend by 10%", "You get paid a bit more each quarter for holding the stock."],
+      ["8:05 AM", "The Verge", "Microsoft cloud prices rise for some business customers", "Higher prices can mean more revenue if customers stay."],
+      ["Yesterday 11:20 AM", "Reuters", "Microsoft opens new data centers in Europe", "Spending now for future cloud growth."]],
+    filings: [
+      ["8-K", "Important company news", "Today 6:31 AM", "Board approved a higher dividend and set the payment date.", "Medium"],
+      ["DEF 14A", "Shareholder meeting notice", "Oct 2, 5:00 PM", "Annual meeting is coming up. Shareholders can vote online and submit questions.", "Medium"]] },
+  TSLA: { name: "Tesla Inc.", ex: "NASDAQ", price: 248.90, chg: -3.05, cap: "802B", pe: "128.4", rev: "$93B", profit: "$6B", div: "None", lo: 182.00, hi: 488.54,
+    checks: [[0,1,0,1],[1,1,1,1],[0,0,1,0],[0,0,1,0]],
+    plain: "Still profitable, but sales went up and down this year and margins shrank. The stock swings a lot.",
+    news: [
+      ["6:00 AM", "Press release", "Tesla reports quarterly vehicle deliveries", "Fewer cars delivered than analysts expected. That is why the stock is down today."],
+      ["9:40 AM", "Bloomberg", "Tesla cuts prices on two models in China", "Lower prices can boost sales but squeeze profit."],
+      ["Yesterday 3:10 PM", "Reuters", "Tesla energy storage business hits record installs", "A growing part of the company that is not cars."]],
+    filings: [
+      ["8-K", "Important company news", "Today 6:02 AM", "Delivery numbers for the quarter. About 6% below expectations.", "High"],
+      ["Form 4", "Insider purchase", "Oct 3, 4:45 PM", "A board member bought shares with their own money. Insiders buying is usually a positive sign.", "Medium"]] },
+  JPM: { name: "JPMorgan Chase & Co.", ex: "NYSE", price: 301.15, chg: 0.22, cap: "828B", pe: "15.3", rev: "$178B", profit: "$58B", div: "1.86%", lo: 202.16, hi: 318.01,
+    checks: [[1,1,1,1],[1,1,1,1],[1,1,0,1],[0,1,1,0]],
+    plain: "Largest US bank. Profitable every quarter, pays a solid dividend, priced lower than tech stocks relative to earnings.",
+    news: [
+      ["6:45 AM", "Press release", "JPMorgan to report third-quarter results Tuesday at 7:00 AM", "Earnings are coming. BigStocks will email the summary the minute it posts."],
+      ["8:30 AM", "WSJ", "Big banks expected to post higher trading revenue", "Busy markets usually mean more money for banks like this one."],
+      ["Yesterday 1:15 PM", "Reuters", "JPMorgan expands branch network in the Midwest", "Growth plan for consumer banking."]],
+    filings: [
+      ["8-K", "Important company news", "Today 6:46 AM", "Confirms the earnings date and time of the results call.", "Medium"],
+      ["10-Q", "Quarterly report", "Aug 5, 4:00 PM", "Profit up 12% vs last year. Loan losses stayed low.", "High"]] },
+  F: { name: "Ford Motor Co.", ex: "NYSE", price: 11.42, chg: -1.38, cap: "45B", pe: "14.6", rev: "$185B", profit: "$3B", div: "5.25%", lo: 8.44, hi: 12.38,
+    checks: [[1,0,0,0],[1,0,1,0],[0,0,0,0],[0,0,0,1]],
+    plain: "Big dividend, but sales fell in 3 of the last 4 quarters and it lost money twice. Margins are thin.",
+    news: [
+      ["6:00 AM", "Press release", "Ford announces recall of 90,000 vehicles", "Recalls cost money to fix. Short-term negative."],
+      ["10:20 AM", "Reuters", "Ford EV unit losses narrow slightly", "Still losing money on electric cars, but less than before."],
+      ["Yesterday 9:00 AM", "CNBC", "Ford keeps its dividend unchanged", "The roughly 5% yearly payout continues for now."]],
+    filings: [
+      ["8-K", "Important company news", "Today 6:03 AM", "Details of the vehicle recall and estimated cost.", "Medium"],
+      ["10-Q", "Quarterly report", "Jul 30, 4:15 PM", "Sales down 3% vs last year. Lost money this quarter because of one-time charges.", "High"]] }
+};
+const CHECK_NAMES = ["Sales grew vs. a year ago", "Made a profit", "Profit margin held up", "Insiders bought more than sold"];
+const QUARTERS = ["Q4 '25", "Q1 '26", "Q2 '26", "Q3 '26"];
+
+const st = { style: "bs", view: "home", t: null, tab: "overview", range: "1D", signedIn: false, trial: false, watch: ["AAPL", "NVDA", "TSLA", "JPM", "F"], gfTab: "gain",
+  chat: [
+    { u: "greenday_trader", t: "8:02 AM", m: "$TSLA deliveries missed. Anyone adding at these levels?" },
+    { u: "valuehunter", t: "8:05 AM", m: "Holding $JPM into earnings Tuesday. Dividend keeps me patient." },
+    { u: "mia_invests", t: "8:11 AM", m: "$NVDA partnership news at 6 AM, BigStocks emailed me before I was out of bed" },
+    { u: "dtran", t: "8:14 AM", m: "$F recall again. That dividend looks less safe to me" },
+    { u: "greenday_trader", t: "8:20 AM", m: "$AAPL quiet but steady. 4 for 4 on sales growth" },
+    { u: "valuehunter", t: "8:26 AM", m: "Good morning everyone, futures look flat" }
+  ] };
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmt = n => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const sign = n => (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+const cls = n => n >= 0 ? "up" : "dn";
+function score(t) { return S[t].checks.flat().reduce((a, b) => a + b, 0); }
+function verdict(t) { const s = score(t); return s >= 12 ? "Strong" : s >= 8 ? "Mixed" : "Weak"; }
+function rng(seed) { let h = 2166136261; for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 10000) / 10000; }; }
+function mentions(text) {
+  return esc(text).replace(/\$([A-Z]{1,5})\b/g, (m, t) => S[t] ? `<button class="mention" data-act="open:${t}">$${t}</button>` : m);
+}
+
+function allFeed() {
+  const out = [];
+  for (const t in S) {
+    S[t].news.filter(n => !n[0].startsWith("Yesterday")).forEach(n => out.push({ t, time: n[0], kind: "News", title: n[2], sum: n[3] }));
+    S[t].filings.filter(f => f[2].startsWith("Today")).forEach(f => out.push({ t, time: f[2].replace("Today ", ""), kind: "Filing · " + f[1], title: f[3].split(".")[0] + ".", sum: f[3] }));
+  }
+  const mins = s => { const [hm, ap] = s.split(" "); let [h, m] = hm.split(":").map(Number); if (ap === "PM" && h !== 12) h += 12; return h * 60 + m; };
+  return out.sort((a, b) => mins(b.time) - mins(a.time));
+}
+
+/* ---------- Views ---------- */
+function searchForm(cls_ = "") {
+  return `<form class="search ${cls_}" id="search-form" role="search">
+    <input id="q" autocomplete="off" placeholder="Type a stock: AAPL, Tesla, JPM…" aria-label="Stock name or ticker">
+    <button class="btn primary" type="submit">Go</button></form><div class="err" id="q-err"></div>`;
+}
+function chatPanel(filter) {
+  const list = st.chat.map((c, i) => ({ ...c, i })).filter(c => !filter || c.m.includes("$" + filter));
+  return `<section class="panel">
+    <header><h3>${filter ? "$" + filter + " chat" : "Everyone chat"}</h3><span class="live">${filter ? "Posts mentioning $" + filter : "Live"}</span></header>
+    <div class="chat-list rows" id="chat-list">${list.length ? list.map(c => `<div class="msg ${c.flag ? "flagged" : ""}">
+      <div class="who">${esc(c.u)} <span>${c.t}</span><button class="rep" data-act="report:${c.i}">${c.flag ? "Reported" : "Report"}</button></div>
+      <div>${c.flag ? "<em class='muted'>Hidden while a moderator reviews it.</em>" : mentions(c.m)}</div></div>`).join("") : `<div class="msg muted">No posts about $${filter} yet. Start the conversation.</div>`}</div>
+    <form class="chat-form" id="chat-form"><input id="chat-in" autocomplete="off" placeholder="${filter ? "Say something about $" + filter : "Mention a stock like $AAPL to post it to that stock's chat too"}" aria-label="Chat message"><button class="btn primary" type="submit">Post</button></form>
+  </section>`;
+}
+
+function homeBS() {
+  const feed = allFeed();
+  return `<section class="hero">
+    <h1>Look up any stock. <em>Get the answer</em> in one click.</h1>
+    <p>News, filings in plain English, and a simple Strong / Mixed / Weak score. Free, no account needed.</p>
+    ${searchForm()}
+    <div class="chips">${Object.keys(S).map(t => `<button class="chip" data-act="open:${t}"><span class="num">${t}</span><span class="${cls(S[t].chg)} num">${sign(S[t].chg)}</span></button>`).join("")}</div>
+  </section>
+  <div class="grid-2">
+    <section class="panel">
+      <header><h3>Just released</h3><span class="live">Updates the minute it posts</span></header>
+      <div class="rows">${feed.map(f => `<button class="feed-item" data-act="open:${f.t}">
+        <span class="feed-time">${f.time}</span>
+        <span><span class="kind">${f.kind}</span> <span class="tick">${f.t}</span><strong>${esc(f.title)}</strong><span class="muted small">${esc(f.sum)}</span></span>
+      </button>`).join("")}</div>
+    </section>
+    ${chatPanel()}
+  </div>`;
+}
+
+function homeGF() {
+  const idx = [["S&P 500", "6,712.40", 0.41], ["Nasdaq", "22,804.15", 0.88], ["Dow Jones", "46,210.77", -0.12]];
+  const sorted = Object.keys(S).sort((a, b) => S[b].chg - S[a].chg);
+  const trend = st.gfTab === "gain" ? sorted.filter(t => S[t].chg > 0) : sorted.reverse().filter(t => S[t].chg < 0);
+  const news = allFeed().filter(f => f.kind === "News").slice(0, 5);
+  return `<div class="idx-row">${idx.map(i => `<div class="idx"><span class="n">${i[0]}</span><span class="num">${i[1]}</span><span class="num small ${cls(i[2])}">${sign(i[2])}</span></div>`).join("")}</div>
+  <div class="gf-search">${searchForm("gf-search")}</div>
+  <div class="grid-2">
+    <div style="display:grid;gap:20px;min-width:0">
+      <section class="panel">
+        <header><h3>Your watchlist</h3><span class="muted small">${st.watch.length} stocks</span></header>
+        <div class="rows">${st.watch.map(t => `<button class="row-btn wl-row" data-act="open:${t}">
+          <span class="tick">${t}</span><span class="small" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${S[t].name}</span>
+          <span class="pill v-${verdict(t)} hide-sm">${verdict(t)}</span>
+          <span class="num hide-sm" style="text-align:right">$${fmt(S[t].price)}</span>
+          <span class="chg-box ${cls(S[t].chg)}">${sign(S[t].chg)}</span></button>`).join("")}</div>
+      </section>
+      <section class="panel">
+        <header><h3>Top stories for you</h3></header>
+        <div class="rows">${news.map(n => `<button class="row-btn" data-act="open:${n.t}"><span class="news-meta"><span class="tick">${n.t}</span>${n.time}</span><strong>${esc(n.title)}</strong></button>`).join("")}</div>
+      </section>
+    </div>
+    <div style="display:grid;gap:20px;min-width:0">
+      <section class="panel">
+        <header><h3>Market trends</h3>
+          <div class="ranges"><button data-act="gf:gain" aria-pressed="${st.gfTab === "gain"}">Gainers</button><button data-act="gf:lose" aria-pressed="${st.gfTab === "lose"}">Losers</button></div></header>
+        <div class="rows">${trend.map(t => `<button class="row-btn wl-row" style="grid-template-columns:56px minmax(0,1fr) auto" data-act="open:${t}"><span class="tick">${t}</span><span class="num small">$${fmt(S[t].price)}</span><span class="chg-box ${cls(S[t].chg)}">${sign(S[t].chg)}</span></button>`).join("")}</div>
+      </section>
+      ${chatPanel()}
+    </div>
+  </div>`;
+}
+
+function chartSVG(t) {
+  const s = S[t], n = 64, r = rng(t + st.range);
+  const vol = { "1D": .003, "5D": .007, "1M": .014, "1Y": .035 }[st.range];
+  let v = [1];
+  for (let i = 1; i < n; i++) v.push(v[i - 1] * (1 + (r() - .5) * 2 * vol + (s.chg > 0 ? vol * .15 : -vol * .15)));
+  const k = s.price / v[n - 1]; v = v.map(x => x * k);
+  const min = Math.min(...v), max = Math.max(...v), W = 600, H = 220, R = 56, P = 12;
+  const x = i => i * (W - R) / (n - 1), y = p => P + (max - p) / (max - min || 1) * (H - 2 * P);
+  const up = v[n - 1] >= v[0], col = up ? "var(--green)" : "var(--down)";
+  const d = v.map((p, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(p).toFixed(1)).join(" ");
+  const grid = [max, (max + min) / 2, min].map(p => `<line x1="0" x2="${W - R}" y1="${y(p)}" y2="${y(p)}" stroke="var(--line)" stroke-dasharray="3 4"/><text x="${W - R + 8}" y="${y(p) + 4}">${fmt(p)}</text>`).join("");
+  const pct = (v[n - 1] / v[0] - 1) * 100;
+  return { pct, svg: `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${t} price chart, ${st.range}">
+    <defs><linearGradient id="fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="${up ? "#2ec274" : "#f2685c"}" stop-opacity=".25"/><stop offset="1" stop-color="${up ? "#2ec274" : "#f2685c"}" stop-opacity="0"/></linearGradient></defs>
+    ${grid}<path d="${d} L${x(n - 1)} ${H} L0 ${H} Z" fill="url(#fill)"/><path d="${d}" fill="none" stroke="${col}" stroke-width="2"/>
+    <circle cx="${x(n - 1)}" cy="${y(v[n - 1])}" r="4.5" fill="${col}"/></svg>` };
+}
+
+function tabOverview(t) {
+  const s = S[t], v = verdict(t), c = chartSVG(t);
+  return `<section class="panel answer">
+    <div class="verdict v-${v}">
+      <span class="label">The answer · fundamentals</span>
+      <span class="big">${v}</span>
+      <span class="num small">${score(t)} of 16 checks passed</span>
+      <p style="margin:0">${esc(s.plain)}</p>
+      <span class="disc">Based only on the last 4 quarterly reports. Not investment advice.</span>
+    </div>
+    <div class="checks">
+      <div class="check"><span class="label">Last 4 quarters</span><span class="qs">${QUARTERS.map(q => `<span class="q muted" style="width:22px;font-size:9px;font-weight:600">${q.split(" ")[0]}</span>`).join("")}<span class="q-score"></span></span></div>
+      ${s.checks.map((row, i) => `<div class="check"><span>${CHECK_NAMES[i]}</span><span class="qs">${row.map((ok, j) => `<span class="q ${ok ? "y" : "n"}" title="${QUARTERS[j]}: ${ok ? "yes" : "no"}">${ok ? "✓" : "✕"}</span>`).join("")}<span class="q-score">${row.reduce((a, b) => a + b)}/4</span></span></div>`).join("")}
+    </div>
+  </section>
+  <section class="panel">
+    <header><span class="num ${cls(c.pct)}">${sign(c.pct)} <span class="muted">${{ "1D": "today", "5D": "past 5 days", "1M": "past month", "1Y": "past year" }[st.range]}</span></span>
+      <div class="ranges">${["1D", "5D", "1M", "1Y"].map(r => `<button data-act="range:${r}" aria-pressed="${st.range === r}">${r}</button>`).join("")}</div></header>
+    <div class="chart-box">${c.svg}</div>
+    <div class="stats">${[["Company value", "$" + s.cap], ["Price vs. earnings (P/E)", s.pe], ["Sales, last 12 mo", s.rev], ["Profit, last 12 mo", s.profit], ["Dividend yield", s.div], ["52-week range", `$${fmt(s.lo)} – $${fmt(s.hi)}`]].map(x => `<div class="stat"><span class="label">${x[0]}</span><span class="v">${x[1]}</span></div>`).join("")}</div>
+  </section>`;
+}
+function tabNews(t) {
+  return `<section class="panel"><header><h3>${t} news</h3><span class="live">Real-time</span></header><div class="rows">${S[t].news.map(n => `<article class="news-item">
+    <div class="news-meta"><span class="num">${n[0]}</span><span>${n[1]}</span></div><strong>${esc(n[2])}</strong>
+    <div class="why"><span class="label">What it means</span><br>${esc(n[3])}</div></article>`).join("")}</div></section>`;
+}
+function tabFilings(t) {
+  return `<section class="panel"><header><h3>Filings, in plain English</h3><span class="muted small">From the SEC, summarized the minute they post</span></header><div class="rows">${S[t].filings.map(f => `<article class="news-item">
+    <div class="news-meta"><span class="care ${f[4]}">${f[4]} importance</span><span class="num">${f[2]}</span><span>Official name: ${f[0]}</span></div>
+    <strong>${f[1]}</strong><div class="why">${esc(f[3])}</div></article>`).join("")}</div></section>`;
+}
+function tabL2(t) {
+  const s = S[t], r = rng(t + "l2"), tickSz = s.price < 20 ? .01 : .01;
+  const venues = ["NSDQ", "ARCA", "EDGX", "BATS", "NYSE", "IEX", "MEMX", "CDRG"];
+  const lv = side => Array.from({ length: 8 }, (_, i) => ({ p: s.price + (side === "b" ? -1 : 1) * (tickSz * (i + (side === "b" ? 0 : 1)) + (i > 2 ? r() * .03 : 0)), sz: Math.round((r() * 40 + 2)) * 100, v: venues[Math.floor(r() * venues.length)] }));
+  const bids = lv("b"), asks = lv("a");
+  const bt = bids.reduce((a, b) => a + b.sz, 0), at = asks.reduce((a, b) => a + b.sz, 0), bp = Math.round(bt / (bt + at) * 100);
+  const mx = Math.max(...bids.map(b => b.sz), ...asks.map(a => a.sz));
+  const rowsT = Array.from({ length: 18 }, (_, i) => { const atAsk = r() > .45; const sec = 9 * 3600 + 58 * 60 + 40 - i * Math.floor(r() * 9 + 2); return { tm: `${String(Math.floor(sec / 3600)).padStart(2, "0")}:${String(Math.floor(sec / 60) % 60).padStart(2, "0")}:${String(sec % 60).padStart(2, "0")}`, p: atAsk ? asks[0].p : bids[0].p, sz: Math.round(r() * 30 + 1) * 100, up: atAsk }; });
+  const book = (rows, side) => `<div><table><thead><tr><th>${side === "bid" ? "Buyers' price" : "Sellers' price"}</th><th>Where</th><th style="text-align:right">Shares</th></tr></thead><tbody>${rows.map(x => `<tr class="${side}" style="--w:${Math.round(x.sz / mx * 100)}%"><td>$${fmt(x.p)}</td><td>${x.v}</td><td class="sz">${x.sz.toLocaleString()}</td></tr>`).join("")}</tbody></table></div>`;
+  const inner = `<div class="l2-inner" style="display:grid;gap:20px">
+    <section class="panel"><header><h3>Level 2 · who wants to buy and sell right now</h3><span class="live">Real-time</span></header>
+      <div class="pressure"><div class="pbar" aria-hidden="true"><div class="b" style="width:${bp}%"></div><div class="a" style="width:${100 - bp}%"></div></div>
+        <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap"><span class="up num">Buyers ${bp}% · ${bt.toLocaleString()} sh</span><span class="dn num">Sellers ${100 - bp}% · ${at.toLocaleString()} sh</span></div>
+        <div class="why">${bp >= 50 ? "More shares are waiting to be bought than sold. Short-term buying pressure." : "More shares are waiting to be sold than bought. Short-term selling pressure."}</div></div>
+      <div class="book">${book(bids, "bid")}${book(asks, "ask")}</div></section>
+    <section class="panel"><header><h3>Time &amp; sales</h3><select aria-label="Day" id="tns-day" class="btn" style="padding:4px 8px"><option>Today</option><option>Yesterday</option><option>Oct 7</option><option>Oct 6</option></select></header>
+      <div class="tns"><table><thead><tr><th>Time</th><th>Price</th><th>Shares</th></tr></thead><tbody>${rowsT.map(x => `<tr><td>${x.tm}</td><td class="${x.up ? "up" : "dn"}">$${fmt(x.p)} ${x.up ? "▲" : "▼"}</td><td>${x.sz.toLocaleString()}</td></tr>`).join("")}</tbody></table></div>
+      <div class="msg small muted" style="border-top:1px solid var(--line)">Green = bought at the asking price (buyers eager). Red = sold at the bid (sellers eager).</div></section></div>`;
+  if (st.trial) return inner;
+  return `<div class="l2-wrap l2-locked">${inner}<div class="l2-gate"><div class="gate-card">
+    <span class="label">Level 2 · Pro</span><h3>See every buyer and seller, live</h3>
+    <p class="muted" style="margin:0">Real-time order book plus historical time &amp; sales, explained in plain English.</p>
+    <button class="btn primary" data-act="trial">Start 7-day free trial</button>
+    <span class="disc">${st.signedIn ? "No card needed for the trial." : "Takes one click with Google or Apple. No card needed for the trial."}</span></div></div></div>`;
+}
+function tabContact(t) {
+  const s = S[t];
+  const kv = (k, v, copy) => `<div class="kv"><span class="label">${k}</span><span>${v}${copy ? `<button class="copy" data-act="copy:${esc(v)}">Copy</button>` : ""}</span></div>`;
+  return `<div class="contact-grid">
+    <section class="panel"><header><h3>Talk to the company</h3></header><div class="rows">
+      ${kv("Investor relations phone", "(555) 010-" + String(1000 + t.length * 137).slice(0, 4), true)}
+      ${kv("Investor relations email", "ir@" + t.toLowerCase() + "-sample.com", true)}
+      ${kv("Headquarters", "Address from the company's latest annual report")}
+      <div class="kv"><span class="label">Can I talk to the CEO?</span><span>Directly, usually not. The best routes: email investor relations with your question, ask it at the annual shareholder meeting (vote and submit questions online), or listen to the next earnings call, where the CEO answers analyst questions.</span></div>
+    </div></section>
+    <section class="panel"><header><h3>Get reports</h3></header><div class="rows">
+      <div class="kv"><span class="label">Annual report</span><span>Read online, or have a printed copy mailed to you.</span><span style="margin-top:8px"><button class="btn" data-act="mail">Request a printed copy</button></span></div>
+      <div class="kv"><span class="label">Next earnings call</span><span>Date and dial-in from the company's latest press release. We'll email you a reminder.</span><span style="margin-top:8px"><button class="btn" data-act="alerts">Remind me</button></span></div>
+      <div class="kv"><span class="label">Who runs ${esc(s.name)}</span><span>CEO, CFO and board names from the latest proxy filing.</span></div>
+    </div></section></div>`;
+}
+
+function stockView() {
+  const t = st.t, s = S[t], v = verdict(t);
+  const tabs = [["overview", "Overview"], ["news", "News"], ["filings", "Filings"], ["l2", "Level 2"], ["contact", "Contact"], ["chat", "Chat"]];
+  const body = { overview: tabOverview, news: tabNews, filings: tabFilings, l2: tabL2, contact: tabContact, chat: chatPanel }[st.tab](t);
+  return `<button class="back" data-act="home">← All stocks</button>
+  <div class="s-head">
+    <div style="display:grid;gap:6px"><span class="label">${s.ex}: ${t}</span><h1>${esc(s.name)}</h1></div>
+    <div style="display:grid;gap:4px"><span class="price">$${fmt(s.price)}</span><span class="num ${cls(s.chg)}">${sign(s.chg)} today <span class="pill v-${v}" style="margin-left:6px;font-family:var(--f-body)">${v}</span></span></div>
+    <div class="s-actions"><button class="btn primary" data-act="alerts">Get alerts</button><button class="btn" data-act="watch">${st.watch.includes(t) ? "✓ On watchlist" : "+ Watchlist"}</button></div>
+  </div>
+  <nav class="tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${st.tab === k}" data-act="tab:${k}">${l}${k === "l2" && !st.trial ? '<span class="lock">PRO</span>' : ""}</button>`).join("")}</nav>
+  <div class="tab-body">${body}</div>`;
+}
+
+/* ---------- Modals ---------- */
+function modal(html) { document.getElementById("modal-root").innerHTML = `<div class="scrim" data-act="close-bg"><div class="modal" role="dialog" aria-modal="true">${html}</div></div>`; }
+function closeModal() { document.getElementById("modal-root").innerHTML = ""; }
+function toast(m) { const r = document.getElementById("toast-root"); r.innerHTML = `<div class="toast" role="status">${esc(m)}</div>`; clearTimeout(toast.t); toast.t = setTimeout(() => r.innerHTML = "", 2600); }
+let after = null;
+function signupModal(why) {
+  modal(`<h3>Join BigStocks free</h3><p class="muted" style="margin:0">${why || "Free account for alerts, watchlist and chat."}</p>
+    <button class="btn" data-act="auth:Google">Continue with Google</button>
+    <button class="btn" data-act="auth:Apple">Continue with Apple</button>
+    <button class="btn primary" data-act="auth:email">Email me a sign-in link</button>
+    <span class="disc">No password to remember. We never sell your email or phone number.</span>
+    <button class="btn" style="border:0" data-act="close">Not now</button>`);
+}
+function alertsModal() {
+  const t = st.t || "your stocks";
+  modal(`<h3>Alerts for ${st.t ? "$" + t : t}</h3><p class="muted" style="margin:0">Sent the minute something posts, with a plain-English summary.</p>
+    ${[["a1", "New SEC filings (8-K, 10-Q, insider trades)", true], ["a2", "Company news and press releases", true], ["a3", "Earnings results", true], ["a4", "Score changes (e.g. Strong → Mixed)", true], ["a5", "One daily summary instead of instant alerts", false]].map(o => `<label class="opt"><input type="checkbox" id="${o[0]}" ${o[2] ? "checked" : ""}><span>${o[1]}</span></label>`).join("")}
+    <span class="label">Send to</span>
+    <label class="opt"><input type="checkbox" id="c-email" checked><span>Email</span></label>
+    <label class="opt"><input type="checkbox" id="c-sms"><span>Text message</span></label>
+    <button class="btn primary" data-act="save-alerts">Turn on alerts</button><button class="btn" style="border:0" data-act="close">Cancel</button>`);
+}
+function trialModal() {
+  modal(`<h3>Level 2 free trial</h3><p class="muted" style="margin:0">7 days of real-time Level 2 and historical time &amp; sales for every NASDAQ and NYSE stock. Cancel any time.</p>
+    <button class="btn primary" data-act="start-trial">Start free trial</button><button class="btn" style="border:0" data-act="close">Not now</button>`);
+}
+
+/* ---------- Render + events ---------- */
+function render() {
+  document.getElementById("sw-bs").setAttribute("aria-pressed", st.style === "bs");
+  document.getElementById("sw-gf").setAttribute("aria-pressed", st.style === "gf");
+  const ab = document.getElementById("auth-btn");
+  ab.textContent = st.signedIn ? "My alerts" : "Sign up free";
+  ab.dataset.act = st.signedIn ? "alerts" : "signup";
+  document.getElementById("app").innerHTML = st.view === "home" ? (st.style === "bs" ? homeBS() : homeGF()) : stockView();
+  const cl = document.getElementById("chat-list"); if (cl) cl.scrollTop = cl.scrollHeight;
+}
+function open(t) { st.view = "stock"; st.t = t; st.tab = "overview"; st.range = "1D"; render(); window.scrollTo(0, 0); }
+
+document.addEventListener("click", e => {
+  const el = e.target.closest("[data-act]"); if (!el) return;
+  const [a, arg] = el.dataset.act.split(/:(.*)/);
+  if (a === "close-bg") { if (e.target === el) closeModal(); return; }
+  if (a === "close") return closeModal();
+  if (a === "home") { st.view = "home"; return render(); }
+  if (a === "style") { st.style = arg; st.view = "home"; return render(); }
+  if (a === "open") return open(arg);
+  if (a === "tab") { st.tab = arg; return render(); }
+  if (a === "range") { st.range = arg; return render(); }
+  if (a === "gf") { st.gfTab = arg; return render(); }
+  if (a === "signup") { after = null; return signupModal(); }
+  if (a === "auth") { st.signedIn = true; closeModal(); toast(arg === "email" ? "Sign-in link sent (demo)" : `Signed in with ${arg} (demo)`); const f = after; after = null; render(); if (f) f(); return; }
+  if (a === "alerts") { if (!st.signedIn) { after = alertsModal; return signupModal("Sign up free to get instant email and text alerts."); } return alertsModal(); }
+  if (a === "save-alerts") { const ch = [document.getElementById("c-email").checked && "email", document.getElementById("c-sms").checked && "text"].filter(Boolean); closeModal(); return toast(ch.length ? `Alerts on by ${ch.join(" and ")} (demo)` : "Pick email or text to get alerts"); }
+  if (a === "trial") { if (!st.signedIn) { after = trialModal; return signupModal("Level 2 needs a free account. One click, then your trial starts."); } return trialModal(); }
+  if (a === "start-trial") { st.trial = true; closeModal(); render(); return toast("Level 2 trial started (demo)"); }
+  if (a === "watch") { const i = st.watch.indexOf(st.t); i >= 0 ? st.watch.splice(i, 1) : st.watch.push(st.t); render(); return toast(i >= 0 ? "Removed from watchlist" : "Added to watchlist"); }
+  if (a === "report") { st.chat[+arg].flag = true; render(); return toast("Reported. A moderator will review it."); }
+  if (a === "mail") { if (!st.signedIn) { after = () => toast("Printed annual report requested (demo)"); return signupModal("Sign up free so we know where to mail it."); } return toast("Printed annual report requested (demo)"); }
+  if (a === "copy") { const done = () => toast("Copied"); try { navigator.clipboard.writeText(arg).then(done, () => toast(arg)); } catch { toast(arg); } return; }
+});
+document.addEventListener("submit", e => {
+  e.preventDefault();
+  if (e.target.id === "search-form") {
+    const q = document.getElementById("q").value.trim().toUpperCase().replace(/^\$/, "");
+    const hit = S[q] ? q : Object.keys(S).find(t => S[t].name.toUpperCase().startsWith(q) && q);
+    if (hit) return open(hit);
+    document.getElementById("q-err").textContent = q ? `This demo includes ${Object.keys(S).join(", ")}. The real app covers every NASDAQ and NYSE stock.` : "Type a ticker or company name.";
+  }
+  if (e.target.id === "chat-form") {
+    const inp = document.getElementById("chat-in"); let m = inp.value.trim(); if (!m) return;
+    if (!st.signedIn) { after = null; return signupModal("Sign up free to chat with other investors."); }
+    if (st.view === "stock" && st.tab === "chat" && !m.includes("$" + st.t)) m = `$${st.t} ` + m;
+    const now = new Date(); st.chat.push({ u: "you", t: now.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }), m });
+    const tags = [...new Set((m.match(/\$([A-Z]{1,5})\b/g) || []).filter(x => S[x.slice(1)]))];
+    render(); toast(tags.length ? `Posted to Everyone and ${tags.join(", ")} chat` : "Posted to Everyone chat");
+  }
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+render();
+</script>

@@ -214,6 +214,8 @@ Next.js web app on the same Droplet (PM2 `bigstocks-web` behind Nginx + HTTPS; p
    └─ prices: TradingView embed widgets in the browser, "by TradingView" attribution kept visible
 ```
 
+Changed on Nov 12 (§6 decisions 10 and 15): press releases also come from the newswire feeds and other approved sources, not 8-K exhibits only; and alerts go out by email only at launch, with text messages as a later add-on.
+
 Why these choices:
 - **Supabase Postgres as the one database.** Sign-in, row-level security and live chat already run there. The data site's code uses plain `pg` and a `DATABASE_URL`, which can point at Supabase's Postgres directly.
 - **Worker on the Droplet, not Vercel Cron.** It's already always on and has the back-off logic. That removes the need for Vercel Pro per-minute cron and the 300-second function limit.
@@ -331,6 +333,21 @@ alert_events (                                   -- the queue, the dedupe and th
 )
 ```
 
+### 4.1 As built (Phase 1, Nov 12): where the real tables differ from the outline
+
+The migration files are in `supabase/migrations/` (`20261112…`). They follow the outline above except for these points, each made for a stated reason:
+
+- **Companies without a ticker are allowed** (`companies.ticker` may be empty), so a company that has only filed to go public still has a row for its filings. A second table, `company_tickers`, maps every ticker to its company, including second share classes (GOOG and GOOGL are one company).
+- **The company list holds every ticker in the SEC's file** (Nasdaq, NYSE, Cboe and OTC), not Nasdaq and NYSE only. The old sites let people follow OTC companies; leaving those out would have dropped their follows. Pages can still choose what to feature.
+- **`news` takes press releases from any approved source** (decision 10), not 8-K exhibits only. `news_sources` lists each source and what we may do with it. Rows from the SEC must link to sec.gov; rows from other sources keep the headline and the link, and the text only where the source allows it.
+- **Newswire headlines already collected by the data site are copied** (headline, link, time; no text). The Phase 1 line "Newswire press rows are not copied" was written before decision 10.
+- **`summaries` can belong to a filing or to a news item.**
+- **`consent_ip` is text, not `inet`.** Some old rows hold values that are not addresses ("unknown", or a list added by a proxy). The consent record has to be kept exactly as recorded.
+- **`alert_subscriptions` has four extra columns** used by the move: `legacy_token` (so links in emails already sent keep working), `backfilled_at` and `updated_at` (to tell a copied row from one the new site has changed), and `legacy` (which old row it came from). Alert kinds also include `press` and `ipo`.
+- **`fundamentals_snapshots.no_score_reason`** says why a company has no verdict (too little data, a blank-check company, a fund).
+- **`picks` and `broadcasts` are copied only in the switch-over run**, because the old app reads `picks` until then.
+- **`backfill_runs`** keeps a record of every saved copy and stops the copy from being run again by accident after the switch-over.
+
 **Kept** (outside the nine core tables): `picks`, merged with the data site's pick alerts (§1.6b): one table, delete-refusing trigger and sponsored-disclosure check kept, price optional; `broadcasts` (the resumable list-wide send job for each pick); `inquiries`, `chat_messages`, `chat_reports`, `chat_hidden`, `app_state`.
 
 **Retired after migration:** `seen_filings`, `digest_queue`, `filing_summaries`, `alert_subscribers`, `profiles` (kept as a read-only view during the switch), `subscribers`, `ticker_follows`, `news_items`.
@@ -345,6 +362,8 @@ alert_events (                                   -- the queue, the dedupe and th
 3. Set `SEC_USER_AGENT` to the real company name and a monitored email in every environment.
 4. Code home: the merged app lives in **this repo** (`second-repo`). The App's code is copied in under the same Next.js app (both are Next 15). The App repo is kept read-only for history.
 
+**Status (Nov 12): built.** A frozen copy of the old app is in `legacy/vercel-app/` (reference only; nothing imports it). `scripts/backup.sh` takes the backups and the consent export. Every new script refuses to contact the SEC without a real `SEC_USER_AGENT`; there is no default. The owner's steps (backups, keys) are in `docs/RUNBOOK.md`.
+
 ### Phase 1: schema and backfill
 1. Create the nine tables plus the renames above as migration files (one file per change; old migrations are never edited).
 2. Load `companies` from `company_tickers_exchange.json` (Nasdaq/NYSE), set `tv_symbol`.
@@ -355,8 +374,10 @@ alert_events (                                   -- the queue, the dedupe and th
    - `alert_subscribers` → one `alert_subscriptions` row per ticker
    - `subscribers` + `ticker_follows` → `alert_subscriptions` (consent fields copied byte for byte)
    - `news_items` (filings only) → `filings`
-   - Newswire press rows are **not** copied.
+   - Newswire press rows are **not** copied. *(Changed by decision 10: headlines and links are copied; see §4.1.)*
 4. Row counts are checked before and after. Each copy is a script that can run again safely.
+
+**Status (Nov 12): built and tested on a local throwaway Postgres; not yet run on the real databases.** `npm run db:migrate` applies the migration files, `npm run companies:load` loads the company list, `npm run backfill` copies the old data (`--dry-run` first). The copy only reads the old tables, reports every row it read, copied or skipped and why, compares the consent records character for character after copying, never switches an opted-out address back on, and records each saved run. The owner runs these against the real databases by following `docs/RUNBOOK.md`; nothing in this repo connects to production on its own.
 
 ### Phase 2: ingestion worker (requirement 3)
 1. One SEC client: a token bucket at 8 requests/second shared by every job, User-Agent on every request, `If-Modified-Since`/`ETag` on feeds, `Retry-After`/exponential back-off on 403/429/5xx, raw responses cached on disk (filing indexes and exhibits never change, so cache them forever; feeds for 30 s).
@@ -378,7 +399,7 @@ alert_events (                                   -- the queue, the dedupe and th
 2. **Sender:** picks `queued` rows with `FOR UPDATE SKIP LOCKED`, sends, records `provider_message_id`; on failure, retries with back-off up to 5 times, then marks `failed`. Respects provider rate limits.
 3. **Digest:** `cadence='digest'` rows become `status='digest'`; one email per subscriber at 6:00 PM ET (computed in `America/New_York`, so it doesn't drift with daylight saving).
 4. **Email:** double opt-in for every list, including the main sign-up. RFC 8058 one-click unsubscribe (POST only); a plain link click opens a confirmation page instead of unsubscribing at once. Postal address in every email footer.
-5. **SMS:** double opt-in: the sign-up sends "Reply YES to confirm BigStocks alerts for $AAPL. Msg & data rates may apply. Reply HELP for help, STOP to cancel." The subscription is active only after YES. STOP (and its synonyms) unsubscribes every SMS subscription for that number and is confirmed once; HELP replies with program name, contact and the STOP line; START re-subscribes. Carrier (10DLC) registration must be approved before launch.
+5. **SMS (later add-on; off at launch, decision 15):** double opt-in: the sign-up sends "Reply YES to confirm BigStocks alerts for $AAPL. Msg & data rates may apply. Reply HELP for help, STOP to cancel." The subscription is active only after YES. STOP (and its synonyms) unsubscribes every SMS subscription for that number and is confirmed once; HELP replies with program name, contact and the STOP line; START re-subscribes. Carrier (10DLC) registration must be approved before launch.
 6. Existing data-site SMS subscribers who joined under the old flow keep their recorded consent (they agreed to the exact text stored); they're not asked again.
 
 ### Phase 5: prices and UI (requirements 1 and 6)
@@ -400,7 +421,7 @@ alert_events (                                   -- the queue, the dedupe and th
 
 ---
 
-## 6. Decisions (owner, Nov 10, 2026)
+## 6. Decisions (owner, Nov 10 and Nov 12, 2026)
 
 | # | Question | Decision |
 |---|---|---|
@@ -411,8 +432,39 @@ alert_events (                                   -- the queue, the dedupe and th
 | 5 | Form 4 | Rule-based from the XML, no AI. |
 | 6 | Membership | **No paid plan for now; every signed-up user is a free member.** Remove Stripe entirely: `src/lib/stripe.ts`, `/api/billing/*`, `/api/stripe/webhook`, `scripts/stripe-setup.mjs`, `/membership`, `MembershipButtons`, `BillingActions`, the admin "grant membership" tool, the `stripe` package and `STRIPE_*` env vars. Picks marked members-only become visible to everyone (drop the `tier` gating and the lock in `PickCard`). Stripe was only ever in test mode, so no real subscribers are affected. |
 | 7 | Hosting | **Everything on the DigitalOcean Droplet**: web app and worker, both under PM2 (`ecosystem.config.cjs`). Leave Vercel: delete `vercel.json` (its crons move into the worker) and `.vercelignore`. Nginx in front of `next start` on port 3000, HTTPS with Let's Encrypt (certbot, auto-renew), gzip, and a 301 from `www` to the apex (or the reverse). Env vars live in a root-only `.env` on the server, never in git. `NEXT_PUBLIC_*` values are baked in at build time, so build on the server after changing them. Database stays on Supabase (sign-in and chat need it). |
-| 8 | Design | **Direction B "Search first"** from the mockups (https://claude.ai/artifact/YTrUT2piuGD3iidxid73s1): dark top band with big stock search and the candlestick strip, sign-up card overlapping the band, light functional body with the live feed (AI summary + "Alert me for $XYZ" on every item) and a sidebar (next free pick, health check, TradingView market overview). Stock, filing and watchlist pages follow the same light style. It's a starting point the owner will refine. |
-| 9 | Health check for emerging growth companies | Companies that check the SEC's "emerging growth company" box on their latest 10-K/10-Q get a **separate rule set**; the current 4 checks (sales grew, made a profit, profit grew, margin held) unfairly mark most young, pre-profit companies Weak. Same Strong / Mixed / Weak output and the same "not investment advice" note; the page says which rule set was used. To do: propose the growth rule set (checks, SEC data each one uses, thresholds) to the owner for approval before building it; it then becomes a `rule_set` column on `fundamentals_snapshots`. |
+| 8 | Design | **The design canvas https://claude.ai/artifact/CBQEHEYTnEUTiisb62xwYo is the design** (owner, Nov 12). It replaces direction B. Homepage = the artboard "15 · FINAL" (`Final15`) plus `PhoneHome` for phones. Every page in the "Other pages", "Remaining pages" and "Legal pages" rows is approved: stock, filing, news, picks, my alerts, confirm, health check explained, settings, search, sign-in, companies, unsubscribe, the empty and error states, the phone stock page and the four legal pages. Style: light only, Manrope, white with a soft mint glow, ink `#0c1a12`, brand green `#0f9a55`, rounded cards, pill buttons, one centred column. |
+| 9 | Health check for emerging growth companies | Companies that check the SEC's "emerging growth company" box get a **separate rule set**; the current 4 checks (sales grew, made a profit, profit grew, margin held) unfairly mark most young, pre-profit companies Weak. Same Strong / Mixed / Weak output and the same "not investment advice" note; the page says which rule set was used; `rule_set` column on `fundamentals_snapshots`. **Status: proposed to the owner, awaiting approval. Until the owner says yes, every company is scored with the standard rules** (the growth rules are built and tested but switched off by `HEALTH_GROWTH_RULES`). The proposal is in §6.1. |
+| 10 | News sources (Nov 12) | **Keep the newswires and add Benzinga, Stock Titan and other sources**; not SEC 8-K exhibits only. Every source has a row in `news_sources` saying whether we may store its text and whether we may summarize it. A source is switched on only once its terms or licence allow our use; until then it stays off. SEC material is public domain and always on. |
+| 11 | Plain English (Nov 12) | Plain-English names everywhere: Quarterly report, Annual report, Company news, Insider trade, IPO filing, Shareholder vote. A form code appears only in brackets after the plain name. |
+| 12 | Prices (Nov 12) | **No price moves in any feed.** Prices and charts are TradingView widgets only; our server never fetches, stores or shows a price. |
+| 13 | Summaries in place (Nov 12) | On every feed, clicking a headline opens the AI summary in place, with the AI label and the link to the original. |
+| 14 | Sign-in (Nov 12) | **Email magic link only.** No passwords and no Google sign-in. |
+| 15 | Alerts channel (Nov 12) | **Email only for now, to go live sooner.** Text alerts (Twilio) are a later add-on. The mobile field in the approved design (decision 8 shows email and mobile with equal weight) is built but hidden while `SMS_ENABLED` is off, so no phone number is collected before texts can be sent lawfully (carrier registration, consent wording). Phone numbers and consent records already collected on the old site are kept exactly as recorded and are not texted. |
+| 16 | Advertise page (Nov 12) | No prices shown: "Contact us for pricing". The inquiry form asks for email and phone. |
+| 17 | Legal pages (Nov 12) | Disclaimer, privacy, terms and SMS terms ship as **draft templates**, marked as drafts in the code; the owner's lawyer reviews them before launch. |
+| 18 | Definition of done (Nov 12) | **A complete website published on the DigitalOcean Droplet with everything working.** Work continues through Phases 0 to 6 without stopping after Phase 1. |
+
+### 6.1 Proposed growth rule set (decision 9; awaiting the owner's OK)
+
+**Who it applies to.** A company that ticks the SEC's "emerging growth company" box **and** lost money from its operations over the last four quarters. An emerging growth company that is already profitable keeps the standard rules. Blank-check companies (SPACs) and funds get "No score".
+
+**The five checks**, each answered for each of the last four quarters:
+
+| # | Check | SEC data it uses |
+|---|---|---|
+| 1 | Sales grew compared with the same quarter a year ago | Revenue (`Revenues`, `RevenueFromContractWithCustomerExcludingAssessedTax`, `SalesRevenueNet`, collaboration revenue) |
+| 2 | Got closer to profit: the operating loss is a smaller share of sales than a year ago, or there is an operating profit | `OperatingIncomeLoss` (falls back to `NetIncomeLoss`), revenue |
+| 3 | A year of cash or more: cash and sellable investments cover at least 12 months of the cash the business uses | Balance-sheet cash and investments; `NetCashProvidedByUsedInOperatingActivities` over the last 12 months. Passes automatically when operations bring cash in |
+| 4 | Two years of cash or more (at least 24 months) | Same as check 3 |
+| 5 | Few new shares issued: the average share count is up 20% or less on a year ago | `WeightedAverageNumberOfSharesOutstandingBasic` (and the diluted figures as fallbacks). Not counted in roughly the first year as a public company |
+
+**Verdict.** The same cut-offs as the standard rules: 75% or more of the answers are yes = Strong; 50 to 74% = Mixed; under 50% = Weak; fewer than 8 answers = "No score yet".
+
+**No sales yet** (sales are zero, or under a tenth of costs): checks 1 and 2 are not counted, so the verdict rests on cash and new shares.
+
+**What it changes.** Tested on 55 real Nasdaq and NYSE emerging growth companies that are not yet profitable: today's rules give 1 Strong, 16 Mixed, 35 Weak, 3 no score; the proposed rules give 13 Strong, 12 Mixed, 28 Weak, 2 no score. Moving the share limit from 20% changes the Strong count (10% gives 10, 30% gives 15); Weak stays at 28 or 29.
+
+**Corrections found when the proposal was checked against the raw filings** (they apply to both rule sets and are built into the Phase 2 scorer): use four quarters in a row only; build the cash figure from balance-sheet lines so nothing is counted twice; skip a quarter whose figures do not add up to the year; treat a missing 12-month figure as unknown rather than as a profit; use the latest filed figure after a restatement; recognise SPACs by their trust account rather than by industry code alone; read the diluted share count when the basic one is missing; prefer figures from annual and quarterly reports over registration filings.
 
 ### Open
 - **Track record vs "win big" (decision 2, reopened; owner: "maybe").** Either (a) bring back an honest public record of every free alert, wins and losses, with the price staff record at send time and the day's close entered the same way (sponsored alerts shown separately and never counted as wins), or (b) keep it removed and drop "win big" style claims from the site, emails and texts, and talk about speed and news instead. Needed before Phase 5 (homepage copy) and before any marketing.

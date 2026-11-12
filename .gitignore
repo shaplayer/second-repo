@@ -7,3 +7,7 @@ next-env.d.ts
 .env*.local
 npm-debug.log*
 .DS_Store
+
+# Written by the migration scripts; they can hold personal data
+backups/
+backfill-report-*.json
