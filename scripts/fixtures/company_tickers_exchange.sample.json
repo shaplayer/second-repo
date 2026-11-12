@@ -1,0 +1,18 @@
+{
+  "fields": ["cik", "name", "ticker", "exchange"],
+  "data": [
+    [320193, "Apple Inc.", "AAPL", "Nasdaq"],
+    [789019, "MICROSOFT CORP", "MSFT", "Nasdaq"],
+    [1652044, "Alphabet Inc.", "GOOGL", "Nasdaq"],
+    [1652044, "Alphabet Inc.", "GOOG", "Nasdaq"],
+    [1067983, "BERKSHIRE HATHAWAY INC", "BRK-B", "NYSE"],
+    [1067983, "BERKSHIRE HATHAWAY INC", "BRK-A", "NYSE"],
+    [9000003, "Copperline Minerals Ltd", "CPLMF", "OTC"],
+    [9000002, "Halcyon Grid Systems Corp", "HGRD", "Nasdaq"],
+    [9000001, "Northwind Biotherapeutics, Inc.", "NWBT", "Nasdaq"],
+    [9000006, "No Exchange Holdings", "NOEX", null],
+    [9000007, "Bad Ticker Corp", "BAD TICKER!", "NYSE"],
+    [9000008, "Twice Listed Inc", "AAPL", "NYSE"],
+    [0, "Zero Corp", "ZERO", "NYSE"]
+  ]
+}
