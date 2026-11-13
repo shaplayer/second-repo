@@ -11,6 +11,7 @@
 import "./load-env";
 import { Client } from "pg";
 import { migrate } from "../lib/db/migrate";
+import { connectionConfig } from "../lib/db/connect";
 import { describeTarget, parseArgs } from "../lib/db/target";
 
 async function main() {
@@ -23,7 +24,7 @@ async function main() {
   if (!dryRun && !flags.has("yes")) {
     throw new Error("This would change the database. Look at --dry-run first, take a backup (docs/RUNBOOK.md), then run again with --yes.");
   }
-  const client = new Client({ connectionString: url });
+  const client = new Client(connectionConfig(url));
   await client.connect();
   try {
     const r = await migrate(client, { baseline: values.get("baseline"), dryRun, log: (l) => console.log("  " + l) });

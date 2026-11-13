@@ -27,6 +27,7 @@ import { matchNewItems } from "../lib/alerts/match";
 import { sendDigests, sendQueuedAlerts } from "../lib/alerts/send";
 import { growthRulesEnabled, teamInbox } from "../lib/config";
 import { loadCompanies } from "../lib/db/companies";
+import { connectionConfig } from "../lib/db/connect";
 import { emailProvider } from "../lib/email";
 import { classifyFilings } from "../lib/ingest/classify";
 import { nextCompaniesToRefresh, refreshCompanyHealth, refreshCompanyProfile } from "../lib/ingest/company";
@@ -69,7 +70,7 @@ export type WorkerOptions = {
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
   const sec = createSecClient(); // throws here, at start, when SEC_USER_AGENT is missing or a placeholder
-  const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+  const db = new Pool({ ...connectionConfig(process.env.DATABASE_URL), max: 4 });
   const sending = (process.env.ALERTS_SENDING ?? "on").toLowerCase() !== "off";
   const summaries = Boolean(process.env.ANTHROPIC_API_KEY);
   console.log(`[worker] started. Sending email: ${sending ? "on" : "OFF"}. Summaries: ${summaries ? "on" : "OFF (no ANTHROPIC_API_KEY)"}. Email service: ${emailProvider().name}.`);

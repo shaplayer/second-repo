@@ -35,6 +35,8 @@ done
 
 app_url="$(read_env DATABASE_URL)"
 site_url="$(read_env DATASITE_DATABASE_URL)"
+DATABASE_SSL_CA="$(read_env DATABASE_SSL_CA)"
+export DATABASE_SSL_CA
 [[ -n "$app_url" ]] || { echo "DATABASE_URL is not set (in the environment or in .env)."; exit 1; }
 
 dir="${BACKUP_DIR:-backups}/$(date -u +%Y%m%d-%H%M%SZ)"
@@ -53,6 +55,14 @@ with_db() { # with_db URL command...
       const host = u.searchParams.get("host") || decodeURIComponent(u.hostname);
       const out = { PGHOST: host, PGPORT: u.port || "5432", PGUSER: decodeURIComponent(u.username), PGPASSWORD: decodeURIComponent(u.password),
                     PGDATABASE: decodeURIComponent(u.pathname.slice(1)), PGSSLMODE: u.searchParams.get("sslmode") || "" };
+      // A database on another machine is always read over an encrypted connection (as lib/db/connect.ts does),
+      // and checked against the certificate file when DATABASE_SSL_CA names one.
+      const local = host.startsWith("/") || ["localhost", "127.0.0.1", "::1", "[::1]"].includes(host.toLowerCase());
+      if (!local && !out.PGSSLMODE) {
+        const ca = (process.env.DATABASE_SSL_CA || "").trim();
+        out.PGSSLMODE = ca ? "verify-full" : "require";
+        if (ca) out.PGSSLROOTCERT = ca;
+      }
       for (const [k, v] of Object.entries(out)) if (v) console.log("export " + k + "=" + q(v));
     ')"
     "$@"

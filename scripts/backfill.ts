@@ -20,6 +20,7 @@ import "./load-env";
 import { writeFileSync } from "node:fs";
 import { Client } from "pg";
 import { CUTOVER_ONLY, recordBackfillRun, runBackfill, STEPS, type StepName } from "../lib/backfill/run";
+import { connectionConfig } from "../lib/db/connect";
 import { describeTarget, parseArgs } from "../lib/db/target";
 
 const LOCK_ID = 74_219_101;
@@ -45,8 +46,8 @@ async function main() {
     throw new Error("This would change the database. Try --dry-run first, take a backup (docs/RUNBOOK.md), then run again with --yes.");
   }
 
-  const db = new Client({ connectionString: url });
-  const site = siteUrl ? new Client({ connectionString: siteUrl }) : null;
+  const db = new Client(connectionConfig(url));
+  const site = siteUrl ? new Client(connectionConfig(siteUrl)) : null;
   await db.connect();
   await site?.connect();
   let failed = false;

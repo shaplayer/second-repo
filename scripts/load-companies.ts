@@ -13,6 +13,7 @@ import "./load-env";
 import { readFileSync } from "node:fs";
 import { Client } from "pg";
 import { loadCompanies } from "../lib/db/companies";
+import { connectionConfig } from "../lib/db/connect";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { parseTickerFile, SEC_TICKERS_EXCHANGE_URL } from "../lib/sec/companies";
 import { secUserAgent } from "../lib/sec/user-agent";
@@ -53,7 +54,7 @@ async function main() {
   console.log(`SEC list: ${parsed.tickers.length} tickers, ${parsed.companies} companies, ${parsed.skipped.length} lines skipped.`);
   if (only) console.log(`Keeping ${rows.length} tickers on: ${only.join(", ")}`);
 
-  const client = new Client({ connectionString: url });
+  const client = new Client(connectionConfig(url));
   await client.connect();
   try {
     await client.query("begin");

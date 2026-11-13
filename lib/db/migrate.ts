@@ -32,7 +32,10 @@ export function readMigrations(dir = path.join(process.cwd(), "supabase/migratio
 
 /** The columns of the history table, creating it first if needed. A dry run creates nothing: no table means no columns. */
 async function historyColumns(client: Client, dryRun: boolean): Promise<Set<string>> {
-  if (!dryRun) {
+  // Created only when missing: "create ... if not exists" asks for the right to create even when the
+  // table is already there, and on a hosted database another role may own it.
+  const { rows: there } = await client.query<{ there: boolean }>(`select to_regclass('supabase_migrations.schema_migrations') is not null as there`);
+  if (!dryRun && !there[0].there) {
     await client.query(`create schema if not exists supabase_migrations`);
     await client.query(
       `create table if not exists supabase_migrations.schema_migrations (version text primary key, statements text[], name text)`,
@@ -71,7 +74,20 @@ export type MigrateOptions = {
   upTo?: string;
   dryRun?: boolean;
   log?: (line: string) => void;
+  /**
+   * How long one statement may wait for a table that something else is using (default 5 seconds).
+   * Without a limit, a waiting migration makes every later query on that table wait behind it,
+   * which stalls the live site.
+   */
+  lockTimeoutMs?: number;
+  /** How many times a file is tried when it had to give way to other activity (default 4). */
+  attempts?: number;
+  /** Pause before the next try, in milliseconds (default 3000). */
+  retryWaitMs?: number;
 };
+
+/** Postgres's codes for "gave up waiting for a lock" and "chosen to give way in a deadlock": safe to try again. */
+const GAVE_WAY = new Set(["55P03", "40P01"]);
 
 export async function migrate(client: Client, opts: MigrateOptions = {}): Promise<MigrateResult> {
   const log = opts.log ?? (() => {});
@@ -105,14 +121,28 @@ export async function migrate(client: Client, opts: MigrateOptions = {}): Promis
         log(`would apply: ${m.file}`);
         continue;
       }
-      await client.query("begin");
-      try {
-        await client.query(m.sql);
-        await record(client, cols, m);
-        await client.query("commit");
-      } catch (e) {
-        await client.query("rollback").catch(() => {});
-        throw new Error(`${m.file} failed and was rolled back: ${(e as Error).message}`);
+      const attempts = Math.max(1, opts.attempts ?? 4);
+      for (let attempt = 1; ; attempt++) {
+        await client.query("begin");
+        try {
+          await client.query(`select set_config('lock_timeout', $1, true)`, [`${Math.max(0, Math.floor(opts.lockTimeoutMs ?? 5000))}ms`]);
+          await client.query(m.sql);
+          await record(client, cols, m);
+          await client.query("commit");
+          break;
+        } catch (e) {
+          await client.query("rollback").catch(() => {});
+          const busy = GAVE_WAY.has((e as { code?: string }).code ?? "");
+          if (busy && attempt < attempts) {
+            log(`waiting: ${m.file} needs a table that is in use right now (try ${attempt} of ${attempts}); nothing was changed`);
+            await new Promise((r) => setTimeout(r, opts.retryWaitMs ?? 3000));
+            continue;
+          }
+          throw new Error(
+            `${m.file} failed and was rolled back: ${(e as Error).message}` +
+              (busy ? ". A table it needs stayed in use. Nothing was changed by this file; run the command again at a quieter moment, and not while a backup is running." : ""),
+          );
+        }
       }
       result.applied.push(m.file);
       log(`applied: ${m.file}`);

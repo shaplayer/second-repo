@@ -33,15 +33,22 @@ with `main`.)
 |---|---|
 | The Supabase connection string | Supabase dashboard, your project, **Connect**, "Session pooler" (port 5432). Not the transaction pooler (port 6543). |
 | The data site's database connection string | The `DATABASE_URL` line in the `.env` file the data site uses on the Droplet today |
+| Supabase's certificate file | Supabase dashboard, your project, **Database settings**, "SSL Configuration", **Download certificate**. Save it on the Droplet, for example as `~/supabase-ca.crt` |
 | Your SEC contact line | Your real company name and an email address someone reads, for example `Acme Research LLC sec-contact@acme-research.com` |
 
 Put them in the `.env` file in the project folder on the Droplet (never in git, never in chat):
 
 ```
 DATABASE_URL=<the Supabase connection string>
+DATABASE_SSL_CA=/home/<you>/supabase-ca.crt
 DATASITE_DATABASE_URL=<the data site's connection string>
 SEC_USER_AGENT="<your company name> <your monitored email>"
 ```
+
+The connection to Supabase is always encrypted, because it carries email addresses and consent
+records. With the `DATABASE_SSL_CA` line, every tool and the site also check that the server at the
+other end really is Supabase's; without it the connection is encrypted but not checked. (The data
+site's own database is on the Droplet itself, so it needs neither.)
 
 The backup tool has to be at least as new as the database server. Supabase runs Postgres 15 or 17, so
 install the version 17 client once:
@@ -82,7 +89,27 @@ Run the backup again right before step A6 (the switch-over).
 
 ### A3. Create the new tables
 
-See what would be applied:
+Do this at a quiet time, and not while a backup (A2) is still running. Most of the files only add
+new tables. A few touch things the old app uses, for a moment each: they add columns to the `picks`
+table and update the small function that runs when someone signs up on the old app. Both old sites
+keep working. If one of those files has to wait more than five seconds for a table that is in use,
+it steps back, changes nothing and tries again a few times; if it still cannot get in, the command
+stops with a message saying so, and you run it again a little later.
+
+First, one check. In the Supabase dashboard, open the **SQL Editor** and run:
+
+```sql
+select 'function ' || proname as what, pg_get_userbyid(proowner) as owner
+  from pg_proc where pronamespace = 'public'::regnamespace and proname = 'handle_new_user'
+union all
+select 'table ' || relname, pg_get_userbyid(relowner)
+  from pg_class where relnamespace = 'public'::regnamespace and relname in ('picks', 'profiles');
+```
+
+Every line should say `postgres`. If one does not, stop and ask: the files would be refused (safely,
+with nothing changed), and the fix is a one-line change of owner.
+
+Now see what would be applied:
 
 ```bash
 npm run db:migrate -- --dry-run
@@ -102,8 +129,8 @@ the old app's tables. Use this instead, which marks those seven as done without 
 npm run db:migrate -- --baseline 20261014004200 --yes
 ```
 
-This step adds tables. It does not change or remove anything the old app or the old data site uses,
-so both keep working. Each file is applied completely or not at all.
+Nothing the old app or the old data site uses is removed, so both keep working. Each file is applied
+completely or not at all, and the command is safe to run again.
 
 ### A4. Load the company list
 
@@ -210,7 +237,7 @@ Each line is explained in the file. What you need to have ready:
 
 | Line | Where it comes from |
 |---|---|
-| `DATABASE_URL` | Supabase, as in A1 |
+| `DATABASE_URL`, `DATABASE_SSL_CA` | Supabase, as in A1 |
 | `NEXT_PUBLIC_SITE_URL` | Your public address, for example `https://bigstocks.com` |
 | `APP_SECRET` | Make one: `openssl rand -base64 48` |
 | `SEC_USER_AGENT` | Your company name and a monitored email, as in A1 |
@@ -353,5 +380,9 @@ those, so fix forward instead and ask for help.
 - Two weeks after the switch-over, with no problems: take a final backup, then the retired tables
   can be dropped (ask first; it is a one-line migration per table).
 - Remove `DATASITE_DATABASE_URL` from `.env`.
+- The new site does not use Supabase's own sign-in. Once the old app is switched off, turn sign-ups
+  off in the Supabase dashboard (**Authentication**, **Sign In / Providers**, "Allow new users to sign
+  up"), so nobody can create accounts there. Until then, keep "Confirm email" switched on in the same
+  place.
 - Text alerts stay off until you decide to add them (plan decision 15).
 - Updating the site later is always: `cd ~/bigstocks-new && bash scripts/deploy.sh`.

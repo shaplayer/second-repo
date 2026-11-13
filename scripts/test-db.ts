@@ -957,12 +957,13 @@ async function main() {
     };
 
     await test("row-level security: a visitor sees none of the server-only tables", async () => {
+      // The new tables give the public roles no rights at all; the old app's picks table keeps its rights and shows no rows.
       for (const t of ["companies", "company_tickers", "filings", "news", "news_sources", "summaries", "fundamentals_snapshots",
-        "alert_events", "broadcasts", "inquiries", "picks", "users", "watchlists", "backfill_runs", "job_state", "summary_jobs",
+        "alert_events", "alert_subscriptions", "broadcasts", "inquiries", "users", "watchlists", "backfill_runs", "job_state", "summary_jobs",
         "login_tokens", "sessions", "suppressions", "digests", "rate_limits"]) {
-        assert.equal(await as("anon", null, () => num(app, `select count(*) from public.${t}`)), 0, t);
+        await as("anon", null, () => assert.rejects(app.query(`select count(*) from public.${t}`), /permission denied/, t));
       }
-      await as("anon", null, () => assert.rejects(app.query(`select count(*) from public.alert_subscriptions`), /permission denied/));
+      assert.equal(await as("anon", null, () => num(app, `select count(*) from public.picks`)), 0, "picks");
       const rls = await rowsOf<{ relname: string }>(
         app,
         `select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -971,33 +972,71 @@ async function main() {
       assert.deepEqual(rls, [], "every table in public has row-level security switched on");
     });
 
-    await test("row-level security: a signed-in person sees only their own rows, and never tokens or consent records", async () => {
+    await test("no way in from a browser: a Supabase sign-in token reads and changes nothing, even for its own id", async () => {
       await app.query(`update public.alert_subscriptions set user_id = $1 where address = 'alice@example.org' and cik = 320193`, [U1]);
-      await as("authenticated", U1, async () => {
-        assert.deepEqual(await rowsOf(app, `select email from public.users`), [{ email: "alice@example.org" }]);
-        assert.equal(await num(app, `select count(*) from public.watchlists`), 1);
-        const own = await rowsOf<{ address: string }>(app, `select address, status from public.alert_subscriptions`);
-        assert.ok(own.length >= 1 && own.every((x) => x.address === "alice@example.org"), "only her own rows, however many she has");
-      });
-      for (const col of ["unsubscribe_token", "confirm_token", "legacy_token", "consent_ip", "consent_text", "legacy"]) {
-        await as("authenticated", U1, () => assert.rejects(app.query(`select ${col} from public.alert_subscriptions`), /permission denied/, col));
+      const tables = ["users", "watchlists", "alert_subscriptions", "alert_events", "login_tokens", "sessions", "suppressions", "inquiries", "companies"];
+      for (const role of ["anon", "authenticated"] as const) {
+        for (const t of tables) {
+          await as(role, U1, () => assert.rejects(app.query(`select count(*) from public.${t}`), /permission denied/, `${role} reading ${t}`));
+          // Row-level security does not cover emptying a table, so the table right itself has to be gone.
+          await as(role, U1, () => assert.rejects(app.query(`truncate public.${t} cascade`), /permission denied/, `${role} emptying ${t}`));
+        }
+        for (const sql of [
+          `update public.users set is_admin = true`, `insert into public.watchlists (user_id, cik) values ('${U1}', 789019)`,
+          `update public.alert_subscriptions set status = 'active'`, `delete from public.watchlists`,
+        ]) {
+          await as(role, U1, () => assert.rejects(app.query(sql), /permission denied/, `${role}: ${sql}`));
+        }
       }
-      await as("authenticated", U2, async () => {
-        assert.equal(await num(app, `select count(*) from public.alert_subscriptions`), 0);
-        assert.deepEqual(await rowsOf(app, `select email from public.users`), [{ email: "bob@example.org" }]);
-      });
-      for (const sql of [
-        `update public.users set is_admin = true`, `insert into public.watchlists (user_id, cik) values ('${U1}', 789019)`,
-        `update public.alert_subscriptions set status = 'active'`, `delete from public.watchlists`,
-      ]) {
-        const changed = await as("authenticated", U1, async () => {
-          try {
-            return (await app.query(sql)).rowCount ?? 0;
-          } catch {
-            return 0;
-          }
-        });
-        assert.equal(changed, 0, `a signed-in browser must not be able to run: ${sql}`);
+      const policies = await rowsOf<{ tablename: string }>(
+        app, `select tablename from pg_policies where schemaname = 'public' and tablename in ('users', 'watchlists', 'alert_subscriptions')`);
+      assert.deepEqual(policies, [], "no policy opens these tables to anyone");
+    });
+
+    await test("a sponsored pick cannot skip the who-paid fields by claiming to be an import", async () => {
+      const insert = (importedFrom: string | null, disclosure: string | null) => app.query(
+        `insert into public.picks (ticker, company_name, kind, title, why, author, tier, imported_from, legacy_id, disclosure_text)
+         values ('ZZZT', 'Test Co', 'sponsored', 't', 'w', 'a', 'free', $1::text, 'check-' || coalesce($1::text, 'none'), $2)`, [importedFrom, disclosure]);
+      await app.query("begin");
+      try {
+        await app.query("savepoint a");
+        await assert.rejects(insert("somewhere-else", "Paid by someone."), /sponsored_needs_disclosure/);
+        await app.query("rollback to savepoint a");
+        await assert.rejects(insert(null, "Paid by someone."), /sponsored_needs_disclosure/);
+        await app.query("rollback to savepoint a");
+        await assert.rejects(app.query(`insert into public.suppressions (channel, address, reason) values ('email', 'Mixed@Example.org', 'manual')`), /suppressions_address_lower/);
+      } finally {
+        await app.query("rollback");
+      }
+    });
+
+    await test("a migration that has to wait for a busy table gives way, tries again, and says so plainly", async () => {
+      const dir = `${os.tmpdir()}/bs-busy-migration-${process.pid}`;
+      const fs = await import("node:fs");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(`${dir}/20990202000000_busy.sql`, "alter table public.job_state add column busy_test int;");
+      const other = await connect(withDb(ADMIN_URL, appDb));
+      try {
+        // Another session is in the middle of using the table.
+        await other.query("begin");
+        await other.query("select count(*) from public.job_state");
+        const lines: string[] = [];
+        const started = Date.now();
+        await assert.rejects(
+          migrate(app, { dir, lockTimeoutMs: 200, attempts: 2, retryWaitMs: 50, log: (l) => lines.push(l) }),
+          /stayed in use\. Nothing was changed by this file/,
+        );
+        assert.ok(Date.now() - started < 5000, "it gives up quickly instead of queueing everyone behind it");
+        assert.ok(lines.some((l) => l.startsWith("waiting: 20990202000000_busy.sql")), "the wait is reported");
+        // The other session finishes: a later try gets through.
+        setTimeout(() => { other.query("commit").catch(() => {}); }, 150);
+        const r = await migrate(app, { dir, lockTimeoutMs: 100, attempts: 6, retryWaitMs: 100 });
+        assert.deepEqual(r.applied, ["20990202000000_busy.sql"]);
+      } finally {
+        await other.end().catch(() => {});
+        await app.query("alter table public.job_state drop column if exists busy_test");
+        await app.query("delete from supabase_migrations.schema_migrations where version = '20990202000000'");
+        fs.rmSync(dir, { recursive: true, force: true });
       }
     });
   } finally {

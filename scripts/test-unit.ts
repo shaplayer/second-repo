@@ -13,6 +13,7 @@ import {
   BASIC_SUMMARY_WHY,
   type Candidate,
 } from "../lib/backfill/mapping";
+import { connectionConfig } from "../lib/db/connect";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { readMigrations } from "../lib/db/migrate";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
@@ -158,6 +159,21 @@ async function main() {
     const newer = cand({ createdAt: "2026-02-01T00:00:00.000000Z", source: "newer" });
     assert.equal(mergeCandidates(newer, older).source, "older");
     assert.throws(() => mergeCandidates(cand({}), cand({ address: "other@example.org" })), /same subscription/);
+  });
+
+  await test("database connections: a database on another machine is always encrypted; a local one is left alone", () => {
+    const none = {} as NodeJS.ProcessEnv;
+    assert.equal(connectionConfig("postgres://u:p@localhost:5432/app", none).ssl, undefined);
+    assert.equal(connectionConfig("postgresql://u@localhost/app?host=/var/run/postgresql", none).ssl, undefined);
+    assert.deepEqual(connectionConfig("postgres://u:p@db.abcdefgh.supabase.co:5432/postgres", none).ssl, { rejectUnauthorized: false });
+    // The address says how itself: left exactly as written.
+    assert.equal(connectionConfig("postgres://u:p@db.example.com/x?sslmode=verify-full", none).ssl, undefined);
+    assert.equal(connectionConfig("postgres://u:p@db.example.com/x?sslmode=disable", none).ssl, undefined);
+    // With the provider's certificate file, the server is checked against it.
+    const checked = connectionConfig("postgres://u:p@db.example.com/x", { DATABASE_SSL_CA: "package.json" } as unknown as NodeJS.ProcessEnv).ssl as { ca: string; rejectUnauthorized: boolean };
+    assert.equal(checked.rejectUnauthorized, true);
+    assert.ok(checked.ca.includes("bigstocks-web"));
+    assert.throws(() => connectionConfig("postgres://u:p@db.example.com/x", { DATABASE_SSL_CA: "/no/such/file.crt" } as unknown as NodeJS.ProcessEnv), /could not be read/);
   });
 
   await test("database targets: local is recognised, passwords never appear in the label", () => {

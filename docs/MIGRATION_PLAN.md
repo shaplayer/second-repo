@@ -480,6 +480,9 @@ These were not in the plan. Each was made to get to a working site sooner or to 
 | Followers who are not on the data site's general list | Copied as off the list. | See `docs/RUNBOOK.md` A5. The safe reading of an unclear record. |
 | Sponsor page numbers | 125,000 subscribers, 1,000,000 daily impressions, 5,000 daily clicks (the figures the old site already published). | The design's "16.7% open rate" and "45,000 text followers" were sample numbers. |
 | Legal pages | Published as the approved drafts, with their `[BRACKETS]` still to fill in. They still describe text alerts in places. | Decision 17: lawyer review before launch. |
+| Newswires at launch | PR Newswire and Business Wire are switched on, as the data site reads them today, but **headline, time and link only**: their text is not stored and not summarized. GlobeNewswire, ACCESS Newswire, Benzinga and Stock Titan are listed but off. | Decision 10 says "keep the newswires" and also "off until the terms allow". This is the middle reading; the two feeds' terms have not been checked. To be strict, switch both off (`enabled = false` in `news_sources`) until they are. **Owner's call.** |
+| Access to the new tables | Only the site's server can read or change them. The "read your own rows" rules written for Supabase sign-in were removed, and the public roles have no rights on these tables. | The site signs people in itself, so those rules were only a way in for someone else. |
+| Database connection | Always encrypted when the database is on another machine; checked against Supabase's certificate when `DATABASE_SSL_CA` is set. | The driver sends everything in clear text unless told otherwise. |
 | Old alerts are dropped, not sent late | An alert that could not be sent within 6 hours is dropped. | After an outage, a burst of stale "news" is worse than none. |
 | Summaries of very long reports | Above about 400,000 characters, the opening and the results sections are sent to the model, and it is told so. | Cost and speed. Most filings are far shorter. |
 | Batch re-writing of old summaries (Phase 3 step 4) | Not built. | Not needed to go live: summaries are written on demand and for followed companies. |
@@ -490,7 +493,7 @@ These were not in the plan. Each was made to get to a working site sooner or to 
 | Phase | State |
 |---|---|
 | 0 Prepare | Built. |
-| 1 Schema and copy | Built and tested on local databases, including a hostile review whose findings are fixed. Not yet run on the real databases (the owner runs it: `docs/RUNBOOK.md` Part A). |
+| 1 Schema and copy | Built and tested on local databases, including two hostile reviews (of the copy and of the schema files) whose findings are fixed. Not yet run on the real databases (the owner runs it: `docs/RUNBOOK.md` Part A). |
 | 2 Worker | Built and tested against saved samples and a stand-in for the SEC. **Not yet run against the live SEC**: that needs the owner's `SEC_USER_AGENT`. The health check uses the standard rules only until decision 9 is approved. |
 | 3 Summaries | Built and tested with a stand-in for Claude. Not yet run against the live API (needs the key on the server). |
 | 4 Alerts | Built and tested: sign-up, confirmation, matching, sending, daily summary, unsubscribe, bounces. Email only. Not yet sent through the real email service. |

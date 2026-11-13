@@ -19,6 +19,8 @@ design is the canvas named in decision 8. `docs/RUNBOOK.md` has the steps the ow
 - One database (Supabase Postgres). Schema changes: add a new file in `supabase/migrations/`; never edit an old one.
 - App data tables are server-only. Read and write them on the server with `pg` (`lib/db.ts`). No client-side table
   access.
+- Open every database connection with `connectionConfig()` (`lib/db/connect.ts`): it encrypts any connection that
+  leaves this machine. New tables give the `anon` and `authenticated` roles no rights (see the newest migration).
 - Never connect to a production database from a development or agent session, and never use the Supabase MCP tools on
   the live project. Test against a local throwaway Postgres: `npm run test:db` creates and drops its own databases and
   refuses any host that is not local.

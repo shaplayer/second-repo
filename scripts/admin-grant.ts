@@ -11,13 +11,14 @@
 import "./load-env";
 import { Client } from "pg";
 import { normalizeEmail } from "../lib/auth/accounts";
+import { connectionConfig } from "../lib/db/connect";
 import { describeTarget, parseArgs } from "../lib/db/target";
 
 async function main() {
   const { flags, rest } = parseArgs(process.argv.slice(2), { flags: ["remove", "list"] });
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Set DATABASE_URL (in .env or the environment)");
-  const db = new Client({ connectionString: url });
+  const db = new Client(connectionConfig(url));
   await db.connect();
   try {
     console.log(`Database: ${describeTarget(url).label}`);
