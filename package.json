@@ -7,28 +7,26 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "ingest": "tsx scripts/ingest.ts",
-    "ingest:once": "tsx scripts/ingest.ts --once",
-    "test": "tsx scripts/test-parsers.ts && tsx scripts/test-unit.ts && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available && tsx scripts/test-summaries.ts --if-available",
+    "test": "tsx scripts/test-unit.ts && tsx scripts/test-health.ts && tsx scripts/test-ingest.ts && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available && tsx scripts/test-summaries.ts --if-available",
     "test:db": "tsx scripts/test-db.ts",
-    "sms:broadcast": "tsx scripts/sms-broadcast.ts",
-    "db:init": "tsx scripts/db-init.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "companies:load": "tsx scripts/load-companies.ts",
     "backfill": "tsx scripts/backfill.ts",
     "backup": "bash scripts/backup.sh",
-    "feeds:check": "tsx scripts/feeds-check.ts"
+    "worker": "tsx scripts/worker.ts",
+    "dev:seed": "tsx scripts/dev-seed.ts",
+    "admin:grant": "tsx scripts/admin-grant.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.8.0",
-    "@fontsource-variable/inter": "5.2.8",
     "@fontsource-variable/manrope": "5.3.0",
     "fast-xml-parser": "5.11.2",
     "next": "15.5.28",
     "nodemailer": "10.2.1",
     "pg": "8.16.3",
     "react": "19.2.9",
-    "react-dom": "19.2.9"
+    "react-dom": "19.2.9",
+    "tsx": "4.20.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.18",
@@ -38,7 +36,6 @@
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
     "tailwindcss": "4.1.18",
-    "tsx": "4.20.6",
     "typescript": "5.9.3"
   },
   "overrides": {

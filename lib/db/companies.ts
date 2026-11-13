@@ -1,5 +1,5 @@
 /** Writes the SEC ticker list into companies and company_tickers. Safe to run again. */
-import type { Client } from "pg";
+import type { Client, PoolClient } from "pg";
 import type { TickerRow } from "../sec/companies";
 
 export type LoadCompaniesResult = {
@@ -24,7 +24,7 @@ const CHUNK = 2000;
  * longer in the file lose their ticker (the company row stays, because filings point at it).
  * Runs inside the caller's transaction.
  */
-export async function loadCompanies(client: Client, rows: TickerRow[], opts: { prune?: boolean } = {}): Promise<LoadCompaniesResult> {
+export async function loadCompanies(client: Client | PoolClient, rows: TickerRow[], opts: { prune?: boolean } = {}): Promise<LoadCompaniesResult> {
   if (opts.prune && rows.length < MIN_ROWS_FOR_PRUNE) {
     throw new Error(
       `Refusing to prune with only ${rows.length} tickers in the file (expected at least ${MIN_ROWS_FOR_PRUNE}). ` +

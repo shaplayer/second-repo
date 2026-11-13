@@ -27,6 +27,8 @@ export const MAX_ATTEMPTS = 5;
 const RETRY_MINUTES = [1, 5, 15, 60];
 /** How long an alert waits for its plain-English summary before going out without one. */
 export const SUMMARY_WAIT_SECONDS = 90;
+/** An alert that could not be sent within this many hours is dropped, never sent late. */
+export const STALE_AFTER_HOURS = 6;
 
 export type SendResult = { sent: number; failed: number; retrying: number; suppressed: number };
 export type SendOptions = { provider?: EmailProvider; limit?: number };
@@ -92,6 +94,13 @@ export async function sendQueuedAlerts(db: Db, opts: SendOptions = {}): Promise<
 
   // Something claimed these and never finished (a crash mid-send): try them again. The key on the send stops a second email.
   await db.query(`update public.alert_events set status = 'queued' where status = 'sending' and next_attempt_at <= now()`);
+  // News that has waited too long is no longer an alert (sending was switched off for a while, or the worker was down):
+  // it is dropped rather than sent late in a burst.
+  await db.query(
+    `update public.alert_events set status = 'suppressed', error = 'too old to send'
+      where status = 'queued' and created_at < now() - make_interval(hours => $1)`,
+    [STALE_AFTER_HOURS],
+  );
 
   const claimed = await inTransaction(db, async (c) => {
     const { rows } = await c.query<Claimed>(
