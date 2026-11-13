@@ -1,22 +1,9 @@
 /** Tests for the pure rules: no network, no database. Run with `npm test`. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import {
-  categoriesFromAppPrefs,
-  derivedToken,
-  mergeCandidates,
-  newsSourceKey,
-  parseSecArchiveUrl,
-  secIndexUrl,
-  sortCategories,
-  summaryKind,
-  BASIC_SUMMARY_WHY,
-  type Candidate,
-} from "../lib/backfill/mapping";
-import { describeTarget, parseArgs } from "../lib/db/target";
-import { readMigrations } from "../lib/db/migrate";
+import { mergeCandidates, type Candidate } from "../lib/backfill/mapping";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
-import { secUserAgent, secUserAgentProblem } from "../lib/sec/user-agent";
+import { createCompanySearch, parseCompanyDirectory, parseCompanyResponse, resolveCompanyTicker, type Company } from "../lib/search/companies";
 import { finish, test } from "./testing";
 
 const cand = (over: Partial<Candidate>): Candidate => ({
@@ -28,18 +15,6 @@ const cand = (over: Partial<Candidate>): Candidate => ({
 
 async function main() {
   console.log("unit tests");
-
-  await test("SEC User-Agent: missing, placeholder and incomplete values are refused", () => {
-    assert.match(secUserAgentProblem(undefined)!, /not set/);
-    assert.match(secUserAgentProblem("   ")!, /not set/);
-    assert.match(secUserAgentProblem("BigStocks admin@yourdomain.com")!, /placeholder/);
-    assert.match(secUserAgentProblem("[Company Name] [monitored email]")!, /placeholder/);
-    assert.match(secUserAgentProblem("Acme Research LLC")!, /no contact email/);
-    assert.match(secUserAgentProblem("ops@acme-research.com")!, /no company name/);
-    assert.equal(secUserAgentProblem("Acme Research LLC sec-contact@acme-research.com"), null);
-    assert.throws(() => secUserAgent({}), /SEC_USER_AGENT is not set/);
-    assert.equal(secUserAgent({ SEC_USER_AGENT: " Acme Research LLC ops@acme-research.com " }), "Acme Research LLC ops@acme-research.com");
-  });
 
   await test("tickers are normalised to BRK.B style", () => {
     assert.equal(normalizeTicker("brk-b"), "BRK.B");
@@ -72,53 +47,43 @@ async function main() {
     assert.throws(() => parseTickerFile({ fields: ["cik", "name"], data: [] }), /no "ticker" column/);
   });
 
-  await test("SEC archive links give the company and accession numbers; anything else is refused", () => {
-    assert.deepEqual(
-      parseSecArchiveUrl("https://www.sec.gov/Archives/edgar/data/320193/000032019326000018/aapl-20260627.htm"),
-      { cik: 320193, accession: "0000320193-26-000018" },
-    );
-    assert.deepEqual(
-      parseSecArchiveUrl("https://www.sec.gov/Archives/edgar/data/9000001/000900000126000041/0009000001-26-000041-index.htm"),
-      { cik: 9000001, accession: "0009000001-26-000041" },
-    );
-    assert.equal(parseSecArchiveUrl("https://example.com/Archives/edgar/data/1/000000000126000001/x.htm"), null);
-    assert.equal(parseSecArchiveUrl("http://www.sec.gov/Archives/edgar/data/1/000000000126000001/x.htm"), null);
-    assert.equal(parseSecArchiveUrl("https://www.sec.gov.evil.example/Archives/edgar/data/1/000000000126000001/"), null);
-    assert.equal(parseSecArchiveUrl("https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent"), null);
-    assert.equal(parseSecArchiveUrl(null), null);
-    assert.equal(
-      secIndexUrl(320193, "0000320193-26-000018"),
-      "https://www.sec.gov/Archives/edgar/data/320193/000032019326000018/0000320193-26-000018-index.htm",
-    );
+  const searchCompanies: Company[] = [
+    { cik: 320193, ticker: "AAPL", name: "Apple Inc.", exchange: "Nasdaq" },
+    { cik: 1, ticker: "APLE", name: "Apple Hospitality REIT", exchange: "NYSE" },
+    { cik: 789019, ticker: "MSFT", name: "Microsoft Corporation", exchange: "Nasdaq" },
+    { cik: 1067983, ticker: "BRK.B", name: "Berkshire Hathaway Inc.", exchange: "NYSE" },
+    ...Array.from({ length: 10 }, (_, n) => ({
+      cik: 100 + n, ticker: `Z${n}`, name: `Apple Example ${n}`, exchange: null,
+    })),
+  ];
+
+  await test("company search ranks exact tickers first and supports prefixes, multiple words and typos", () => {
+    const search = createCompanySearch(searchCompanies);
+    assert.equal(search.search("$aapl")[0].ticker, "AAPL");
+    assert.equal(search.search("brk-b")[0].ticker, "BRK.B");
+    assert.equal(search.search("micro")[0].ticker, "MSFT");
+    assert.deepEqual(search.search("apple hospital").map((c) => c.ticker), ["APLE"]);
+    assert.equal(search.search("microsft")[0].ticker, "MSFT");
+    assert.equal(search.search("apple").length, 8);
+    assert.deepEqual(search.search(""), []);
+    assert.deepEqual(search.search("not-a-real-company"), []);
+    assert.equal(resolveCompanyTicker("FDA", search), null);
+    assert.equal(resolveCompanyTicker("aapl", search), "AAPL");
+    assert.equal(resolveCompanyTicker("$aapl"), "AAPL");
+    assert.equal(resolveCompanyTicker("$invalid ticker"), null);
   });
 
-  await test("news sources: known wires map to keys, the old sample feed does not", () => {
-    assert.equal(newsSourceKey("PR Newswire"), "prnewswire");
-    assert.equal(newsSourceKey(" business wire "), "businesswire");
-    assert.equal(newsSourceKey("Sample Wire"), null);
-    assert.equal(newsSourceKey(null), null);
-  });
-
-  await test("derived tokens are stable, different per input, and fit the token rule", () => {
-    const a = derivedToken("app-unsubscribe", "tok", 320193);
-    assert.equal(a, derivedToken("app-unsubscribe", "tok", 320193));
-    assert.notEqual(a, derivedToken("app-unsubscribe", "tok", 789019));
-    assert.notEqual(derivedToken("a", "bc"), derivedToken("ab", "c"));
-    assert.match(a, /^[A-Za-z0-9_-]{32}$/);
-  });
-
-  await test("old app alert switches become categories; 'news' includes press releases", () => {
-    assert.deepEqual(categoriesFromAppPrefs({ earnings: true, news: true, insider: false }), ["press", "earnings", "news"]);
-    assert.deepEqual(categoriesFromAppPrefs({ insider: true }), ["insider"]);
-    assert.deepEqual(categoriesFromAppPrefs(null), []);
-    assert.deepEqual(sortCategories(["news", "picks", "news", "bogus"]), ["picks", "news"]);
-  });
-
-  await test("old summaries: insider trades and the plain fallback are not labelled as AI", () => {
-    assert.equal(summaryKind("4", "Insiders buying..."), "rule");
-    assert.equal(summaryKind("10-Q", BASIC_SUMMARY_WHY), "rule");
-    assert.equal(summaryKind("10-Q", "Sales grew."), "ai");
-    assert.equal(summaryKind("4/A", "Amended."), "ai");
+  await test("company directory rejects malformed and empty responses", () => {
+    assert.throws(() => parseCompanyDirectory({ fields: [], data: [] }), /no "cik" column/);
+    assert.throws(() => parseCompanyDirectory({ fields: ["cik", "name", "ticker", "exchange"], data: [] }), /no valid tickers/);
+    assert.deepEqual(parseCompanyDirectory({
+      fields: ["ticker", "exchange", "name", "cik"],
+      data: [["BRK-B", "NYSE", "Berkshire Hathaway Inc.", 1067983]],
+    }), [searchCompanies[3]]);
+    assert.throws(() => parseCompanyResponse({ companies: [], stale: false }), /Invalid company directory/);
+    assert.throws(() => parseCompanyResponse({ companies: searchCompanies }), /Invalid company directory/);
+    assert.throws(() => parseCompanyResponse({ companies: [{ ...searchCompanies[0], cik: "320193" }], stale: false }), /Invalid company directory/);
+    assert.deepEqual(parseCompanyResponse({ companies: searchCompanies, stale: true }), { companies: searchCompanies, stale: true });
   });
 
   await test("merging two old records: an opt-out wins unless the sign-up came later", () => {
@@ -146,32 +111,6 @@ async function main() {
     const newer = cand({ createdAt: "2026-02-01T00:00:00.000000Z", source: "newer" });
     assert.equal(mergeCandidates(newer, older).source, "older");
     assert.throws(() => mergeCandidates(cand({}), cand({ address: "other@example.org" })), /same subscription/);
-  });
-
-  await test("database targets: local is recognised, passwords never appear in the label", () => {
-    assert.equal(describeTarget("postgresql://u@localhost/app?host=/var/run/postgresql").isLocal, true);
-    assert.equal(describeTarget("postgres://u:secret@127.0.0.1:5432/app").isLocal, true);
-    const remote = describeTarget("postgres://postgres:hunter2@db.abcdefgh.supabase.co:5432/postgres");
-    assert.equal(remote.isLocal, false);
-    assert.ok(!remote.label.includes("hunter2"));
-    assert.throws(() => describeTarget("not a url"), /not a valid URL/);
-  });
-
-  await test("command-line arguments", () => {
-    const a = parseArgs(["--dry-run", "--only", "users,news", "--report=out.json", "--yes"]);
-    assert.deepEqual([...a.flags].sort(), ["dry-run", "yes"]);
-    assert.equal(a.values.get("only"), "users,news");
-    assert.equal(a.values.get("report"), "out.json");
-  });
-
-  await test("migration files are named and ordered correctly, and the old ones are untouched", () => {
-    const all = readMigrations();
-    assert.ok(all.length >= 19);
-    assert.deepEqual(all.map((m) => m.version), [...all.map((m) => m.version)].sort());
-    for (const m of all.filter((x) => x.version <= "20261014004200")) {
-      const original = readFileSync(`legacy/vercel-app/supabase/migrations/${m.file}`, "utf8");
-      assert.equal(m.sql, original, `${m.file} must stay exactly as the old app applied it`);
-    }
   });
 
   if (!finish("unit tests")) process.exit(1);

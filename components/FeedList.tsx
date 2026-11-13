@@ -1,11 +1,11 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import type { FeedItem, FeedKind, FeedResponse } from "@/lib/feeds/types";
+import { useEffect, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import type { FeedItem, FeedResponse } from "@/lib/feeds/types";
+import { feedPagesQuery, type FeedFilter } from "@/lib/feeds/queries";
 import { FeedRow } from "./FeedRow";
 
-export type FeedFilter = { kind?: FeedKind | "all"; ticker?: string; forms?: string[]; q?: string };
-
-const PAGE = 25;
+export type { FeedFilter } from "@/lib/feeds/queries";
 
 function dayLabel(iso: string, now: Date) {
   const fmt = (d: Date) => d.toLocaleDateString("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
@@ -15,57 +15,26 @@ function dayLabel(iso: string, now: Date) {
   return d.toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long", month: "short", day: "numeric" });
 }
 
-function query(f: FeedFilter, before?: string | null) {
-  const p = new URLSearchParams({ limit: String(PAGE), kind: f.kind ?? "all" });
-  if (f.ticker) p.set("ticker", f.ticker);
-  if (f.forms?.length) p.set("forms", f.forms.join(","));
-  if (f.q) p.set("q", f.q);
-  if (before) p.set("before", before);
-  return `/api/feed?${p}`;
-}
-
 /** Paged feed grouped by day (US Eastern). `initial` is server-rendered for the same filter. */
 export function FeedList({ initial, filter, showTicker = true, empty }: {
   initial: FeedResponse; filter: FeedFilter; showTicker?: boolean; empty?: React.ReactNode;
 }) {
-  const [items, setItems] = useState<FeedItem[]>(initial.items);
-  const [next, setNext] = useState<string | null>(initial.nextBefore);
-  const [loading, setLoading] = useState(false);
+  const feed = useInfiniteQuery({
+    ...feedPagesQuery(filter),
+    initialData: { pages: [initial], pageParams: [null] },
+  });
+  const seen = new Set<string>();
+  const items = feed.data.pages.flatMap((page) => page.items).filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+  const loading = feed.isFetchingNextPage;
   const [now, setNow] = useState<Date | null>(null);
-  const key = JSON.stringify(filter);
-  const firstKey = useRef(key);
 
   useEffect(() => setNow(new Date()), []);
 
-  // Filter changed on the client: reload page 1.
-  useEffect(() => {
-    if (key === firstKey.current) return;
-    firstKey.current = key;
-    const ctrl = new AbortController();
-    setLoading(true);
-    fetch(query(filter), { signal: ctrl.signal })
-      .then((r) => r.json())
-      .then((d: FeedResponse) => { setItems(d.items); setNext(d.nextBefore); })
-      .catch(() => {})
-      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
-    return () => ctrl.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  async function more() {
-    if (!next) return;
-    setLoading(true);
-    try {
-      const d: FeedResponse = await (await fetch(query(filter, next))).json();
-      setItems((cur) => {
-        const seen = new Set(cur.map((i) => i.id));
-        return [...cur, ...d.items.filter((i) => !seen.has(i.id))];
-      });
-      setNext(d.nextBefore);
-    } finally { setLoading(false); }
-  }
-
-  if (!items.length && !loading) {
+  if (!items.length && !loading && !feed.isError) {
     return <div className="px-6 py-16 text-center">{empty ?? <p className="text-muted">Nothing here yet.</p>}</div>;
   }
 
@@ -79,6 +48,11 @@ export function FeedList({ initial, filter, showTicker = true, empty }: {
 
   return (
     <div aria-busy={loading}>
+      {feed.isError && <p role="alert" className="border-b border-line px-6 py-4 text-[14px] text-muted">
+        Could not load {feed.isFetchNextPageError ? "more items" : "the feed"}.{" "}
+        <button type="button" onClick={() => void (feed.isFetchNextPageError ? feed.fetchNextPage() : feed.refetch())}
+          className="text-brand underline">Retry</button>
+      </p>}
       {groups.map((g) => (
         <section key={g.label} aria-label={g.label}>
           <h3 className="sticky top-[68px] z-20 border-b border-line bg-surface/95 px-5 py-2.5 text-[11.5px] font-semibold uppercase tracking-[0.14em] text-faint backdrop-blur sm:px-6" suppressHydrationWarning>
@@ -97,9 +71,9 @@ export function FeedList({ initial, filter, showTicker = true, empty }: {
           ))}
         </ul>
       )}
-      {next && !loading && (
+      {feed.hasNextPage && !loading && !feed.isError && (
         <div className="border-t border-line p-4 text-center">
-          <button type="button" onClick={more} className="btn-ghost">Load more</button>
+          <button type="button" onClick={() => void feed.fetchNextPage()} className="btn-ghost">Load more</button>
         </div>
       )}
     </div>

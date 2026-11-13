@@ -5,7 +5,7 @@ import { Footer } from "@/components/sections/Footer";
 import { SignupForm } from "@/components/SignupForm";
 import { ResultBadge } from "@/components/ResultBadge";
 import { ResultsStrip } from "@/components/ResultsStrip";
-import { Search } from "@/components/Icons";
+import { TrackRecordSearch } from "@/components/TrackRecordSearch";
 import { TickerCell } from "@/components/TierLabel";
 import { alertStats, listAlerts, pct, resultSequence, type AlertFilter, type AlertResult, type AlertRow } from "@/lib/alerts";
 import { formatET, formatPercent, formatPrice } from "@/lib/format";
@@ -136,15 +136,7 @@ export default async function TrackRecordPage({ searchParams }: { searchParams: 
                       </Link>
                     ))}
                   </nav>
-                  <form action="/track-record" className="flex h-9 items-center gap-2 rounded-full border border-line-strong bg-bg px-3 focus-within:border-brand/60">
-                    {f.type !== "all" && <input type="hidden" name="type" value={f.type} />}
-                    {f.result !== "all" && <input type="hidden" name="result" value={f.result} />}
-                    <Search className="h-3.5 w-3.5 text-faint" />
-                    <label htmlFor="tr-ticker" className="sr-only">Filter by ticker</label>
-                    <input id="tr-ticker" name="ticker" defaultValue={f.ticker ?? ""} placeholder="Ticker" maxLength={10}
-                      className="w-24 bg-transparent font-mono text-[13px] uppercase text-ink placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:outline-none" />
-                    {f.ticker && <Link href={hrefWith(f, { ticker: null })} className="text-[12px] text-faint hover:text-ink">Clear</Link>}
-                  </form>
+                  <TrackRecordSearch key={f.ticker ?? ""} ticker={f.ticker ?? ""} baseHref={hrefWith(f, { ticker: null })} />
                 </div>
 
                 {list.rows.length === 0 ? (

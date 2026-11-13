@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/inter";
 import "./globals.css";
 import { AlertsDialog } from "@/components/AlertsDialog";
+import { QueryProvider } from "@/components/QueryProvider";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bigstocks.com";
 
@@ -26,8 +27,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="min-h-dvh overflow-x-hidden">
-        {children}
-        <AlertsDialog />
+        <QueryProvider>
+          {children}
+          <AlertsDialog />
+        </QueryProvider>
       </body>
     </html>
   );

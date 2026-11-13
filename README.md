@@ -133,8 +133,8 @@ server {
 | `/filings` | Latest SEC filings with form-type filters (`?form=8-K`, `10-Q`, `10-K`, `S-1`, `S-3`, `6-K`, `424B4`, `13D`). |
 | `/news/ABCD` | Everything for one ticker: its press releases plus its full recent SEC filing history. Share this link with clients. |
 
-The search box opens a ticker page for `$ABCD` or one short word (`AAPL`, `tsla`), and searches headlines for anything else.
-"Load more" pages through the database (25 items per page).
+All current search fields share `CompanySearch` and the MiniSearch index in `lib/search/companies.ts`.
+Company suggestions support ticker/name prefixes, multiple words and limited typo matching.
 
 ## Company alerts (follow a ticker)
 

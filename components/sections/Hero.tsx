@@ -51,7 +51,7 @@ export function Hero({ items }: { items: FeedItem[] }) {
         <div className="relative">
           {/* Quick news search: small and out of the way, but right there. */}
           <div className="relative z-10 mb-3 w-full sm:absolute sm:left-0 sm:top-[2%] sm:mb-0 sm:w-[300px]">
-            <FeedSearch size="sm" placeholder="Search a ticker for news" />
+            <FeedSearch size="sm" placeholder="Ticker, company or news" />
           </div>
 
           <div className="relative h-[360px] w-full sm:h-[500px] lg:h-[580px]">

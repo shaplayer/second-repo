@@ -65,7 +65,7 @@ export function Nav() {
       {search && (
         <div id="nav-search" className="container-wide pb-4">
           <div className="ml-auto max-w-[520px]">
-            <FeedSearch size="sm" autoFocus placeholder="Ticker (AAPL) or keyword" onDone={() => setSearch(false)} />
+            <FeedSearch size="sm" autoFocus placeholder="Ticker, company or keyword" onDone={() => setSearch(false)} />
           </div>
         </div>
       )}

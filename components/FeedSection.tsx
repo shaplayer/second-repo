@@ -1,12 +1,17 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FeedResponse } from "@/lib/feeds/types";
+import { feedQuery } from "@/lib/feeds/queries";
+import { resolveCompanyTicker } from "@/lib/search/companies";
+import { companyDirectoryQuery } from "@/lib/search/queries";
 import { links } from "@/lib/site";
 import { SOURCE_CREDITS } from "@/lib/feeds/sources";
 import { SmartLink } from "./SmartLink";
 import { FeedRow } from "./FeedRow";
 import { BellButton } from "./BellButton";
-import { ArrowRight, Search } from "./Icons";
+import { ArrowRight } from "./Icons";
+import { CompanySearch } from "./CompanySearch";
 
 type Tab = "all" | "press" | "filing";
 const TABS: { id: Tab; label: string }[] = [
@@ -18,28 +23,33 @@ const TABS: { id: Tab; label: string }[] = [
 export function FeedSection({ initial }: { initial: FeedResponse }) {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
-  const [data, setData] = useState<FeedResponse>(initial);
-  const [loading, setLoading] = useState(false);
-  const first = useRef(true);
-
-  const ticker = query.trim().toUpperCase().replace(/^\$/, "");
-  const validTicker = /^[A-Z]{1,5}(\.[A-Z])?$/.test(ticker);
+  const [filter, setFilter] = useState<{ ticker?: string; q?: string }>({});
+  const [keywordOnly, setKeywordOnly] = useState(false);
+  const client = useQueryClient();
+  const directory = useQuery({ ...companyDirectoryQuery, enabled: false });
 
   useEffect(() => {
-    if (first.current) { first.current = false; return; }
-    const ctrl = new AbortController();
-    const id = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const p = new URLSearchParams({ kind: tab, limit: "8" });
-        if (ticker) p.set("ticker", ticker);
-        const res = await fetch(`/api/feed?${p}`, { signal: ctrl.signal });
-        if (res.ok) setData(await res.json());
-      } catch { /* aborted or offline: keep current list */ }
-      finally { if (!ctrl.signal.aborted) setLoading(false); }
-    }, ticker ? 350 : 0);
-    return () => { clearTimeout(id); ctrl.abort(); };
-  }, [tab, ticker]);
+    const id = setTimeout(() => {
+      const ticker = keywordOnly ? null : resolveCompanyTicker(query, directory.data);
+      setFilter(ticker ? { ticker } : query.trim() ? { q: query.trim() } : {});
+    }, query.trim() ? 350 : 0);
+    return () => clearTimeout(id);
+  }, [query, directory.data, keywordOnly]);
+
+  const feed = useQuery({
+    ...feedQuery({ kind: tab, ...filter, limit: 8 }),
+    initialData: tab === "all" && !filter.ticker && !filter.q ? initial : undefined,
+  });
+  const data = feed.data;
+  const ticker = filter.ticker;
+  const searchTerm = ticker ?? filter.q;
+
+  function apply(text: string, keywords = false) {
+    setQuery(text);
+    setKeywordOnly(keywords);
+    const ticker = keywords ? null : resolveCompanyTicker(text, client.getQueryData(companyDirectoryQuery.queryKey));
+    setFilter(ticker ? { ticker } : text.trim() ? { q: text.trim() } : {});
+  }
 
   return (
     <section id="news" className="container-wide py-20 md:py-24" aria-labelledby="feed-title">
@@ -51,20 +61,18 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
           </h2>
           <p className="mt-5 max-w-md text-[16px] leading-relaxed text-muted">
             Every press release and SEC filing in one place, straight from the newswires and SEC EDGAR.
-            Type a ticker, then hit the bell to get that company&apos;s news by email or text.
+            Search a ticker, company or headline. Choose a company, then hit the bell to get its news by email or text.
           </p>
 
-          <form role="search" onSubmit={(e) => e.preventDefault()}
-            className="mt-8 flex h-16 max-w-md items-center gap-3 rounded-full border border-brand/40 bg-surface px-5 shadow-[0_0_0_4px_rgba(18,226,122,0.06)] focus-within:border-brand/70">
-            <Search className="h-5 w-5 text-brand" />
-            <label htmlFor="ticker-search" className="sr-only">Search by ticker</label>
-            <input id="ticker-search" value={query} onChange={(e) => setQuery(e.target.value.slice(0, 10))}
-              placeholder="Type a ticker, e.g. AAPL" autoComplete="off" spellCheck={false}
-              className="num min-w-0 flex-1 bg-transparent font-mono text-[17px] uppercase text-ink placeholder:font-sans placeholder:normal-case placeholder:text-faint focus:outline-none" />
-            {query && <button type="button" onClick={() => setQuery("")} className="text-[12px] text-faint hover:text-ink">Clear</button>}
-          </form>
+          {/* Search form for ticker input */}
+          <div className="mt-8 max-w-md">
+            <CompanySearch value={query} onChange={(text) => { setQuery(text); setKeywordOnly(false); }}
+              onSelect={(company) => apply(company.ticker)} onSubmit={apply} onClear={() => apply("")}
+              placeholder="Ticker, company or headline"
+              className="!h-16 !border-brand/40 shadow-[0_0_0_4px_rgba(18,226,122,0.06)]" />
+          </div>
 
-          {validTicker && (
+          {ticker && (
             <>
               <SmartLink href={`/news/${ticker}`} className="mt-3 inline-flex items-center gap-1.5 pl-4 text-[13.5px] text-brand hover:underline">
                 Open the full ${ticker} page <ArrowRight className="h-3.5 w-3.5" />
@@ -92,14 +100,17 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
             <div className="flex items-center gap-4">
               <span className="hidden items-center gap-2 text-[12px] text-faint sm:inline-flex">
                 <span className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-brand" />
-                {data.mode === "sample" ? "Sample data (dev preview)" : "Live"}
+                {data?.mode === "sample" ? "Sample data (dev preview)" : "Live"}
               </span>
-              <BellButton ticker={validTicker ? ticker : undefined} source="home-feed-bell"
-                label={validTicker ? undefined : "Alert me"} className="!h-9" />
+              <BellButton ticker={ticker} source="home-feed-bell"
+                label={ticker ? undefined : "Alert me"} className="!h-9" />
             </div>
           </div>
 
-          {loading ? (
+          {feed.isError && <p role="alert" className="border-b border-line px-6 py-4 text-[14px] text-muted">
+            Could not load the feed. <button type="button" onClick={() => void feed.refetch()} className="text-brand underline">Retry</button>
+          </p>}
+          {feed.isPending ? (
             <ul aria-busy="true" className="divide-y divide-line">
               {Array.from({ length: 6 }).map((_, i) => (
                 <li key={i} className="grid grid-cols-[auto_1fr] gap-4 px-6 py-5">
@@ -108,13 +119,13 @@ export function FeedSection({ initial }: { initial: FeedResponse }) {
                 </li>
               ))}
             </ul>
-          ) : data.items.length ? (
+          ) : data?.items.length ? (
             <ul className="divide-y divide-line">{data.items.map((it) => <FeedRow key={it.id} item={it} />)}</ul>
-          ) : (
+          ) : !feed.isError && (
             <div className="px-6 py-16 text-center">
-              <p className="font-medium">{ticker ? `Nothing found for ${ticker} yet.` : "The feed is warming up."}</p>
+              <p className="font-medium">{searchTerm ? `Nothing found for ${searchTerm} yet.` : "The feed is warming up."}</p>
               <p className="mx-auto mt-2 max-w-sm text-[14px] text-muted">
-                {ticker ? "Check the symbol, or try the SEC filings tab." : "New press releases and filings appear here within minutes of hitting the wire."}
+                {searchTerm ? "Try another company, headline or feed tab." : "New press releases and filings appear here within minutes of hitting the wire."}
               </p>
             </div>
           )}
