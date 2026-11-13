@@ -199,6 +199,7 @@ async function main() {
     assert.ok(burst.kind === "insiders");
     assert.deepEqual(insiderGroupText(burst.items), {
       headline: "3 insiders reported trades",
+      breakdown: "1 bought on the open market · 1 sold on the open market · 1 through awards or other transfers",
       detail: "1 bought on the open market · 1 sold on the open market · 1 through awards or other transfers. Open to see each one.",
     });
     assert.equal(insiderGroupText([list[3], list[3]]).detail, "All through stock awards or other transfers, not open-market trades. Open to see each one.");
