@@ -18,7 +18,7 @@ import { Client } from "pg";
 import { recordBackfillRun, runBackfill, type BackfillReport, type StepReport } from "../lib/backfill/run";
 import { BASIC_SUMMARY_WHY, derivedToken } from "../lib/backfill/mapping";
 import { loadCompanies } from "../lib/db/companies";
-import { migrate } from "../lib/db/migrate";
+import { migrate, readMigrations } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
 import { parseTickerFile, type TickerRow } from "../lib/sec/companies";
 import { finish, test } from "./testing";
@@ -27,6 +27,8 @@ const ADMIN_URL =
   process.env.TEST_PG_URL ??
   `postgresql://${encodeURIComponent(process.env.PGUSER ?? os.userInfo().username)}@localhost/postgres?host=/var/run/postgresql`;
 const LAST_OLD_MIGRATION = "20261014004200";
+/** How many migration files are newer than the old app's seven. */
+const NEWER = readMigrations().filter((m) => m.version > LAST_OLD_MIGRATION).length;
 
 const U1 = "00000000-0000-4000-8000-000000000001";
 const U2 = "00000000-0000-4000-8000-000000000002";
@@ -240,11 +242,11 @@ async function main() {
       assert.equal(first.applied.length, 7);
       await seedOldApp(app);
       const second = await migrate(app);
-      assert.equal(second.applied.length, 13);
+      assert.equal(second.applied.length, NEWER);
       assert.equal(second.alreadyApplied, 7);
       const third = await migrate(app);
       assert.equal(third.applied.length, 0, "running again changes nothing");
-      assert.equal(third.alreadyApplied, 20);
+      assert.equal(third.alreadyApplied, 7 + NEWER);
     });
 
     await test("a failing migration is rolled back completely", async () => {
@@ -266,7 +268,7 @@ async function main() {
       try {
         const r = await migrate(c, { baseline: LAST_OLD_MIGRATION, dryRun: true });
         assert.equal(r.baselined.length, 7);
-        assert.equal(r.pending.length, 13);
+        assert.equal(r.pending.length, NEWER);
         const made = await one<{ made: boolean }>(c, `select to_regclass('supabase_migrations.schema_migrations') is not null as made`);
         assert.equal(made.made, false, "a dry run creates and records nothing");
       } finally {
@@ -280,6 +282,13 @@ async function main() {
       await app.query(`insert into auth.users (id, email) values ($1, 'dan@example.org')`, [U4]);
       assert.equal(await num(app, `select count(*) from public.profiles where id = $1`, [U4]), 1);
       assert.equal(await num(app, `select count(*) from public.users where id = $1 and email = 'dan@example.org'`, [U4]), 1);
+      // The old app is still live: a sign-up there must go through even when that address already has an account here.
+      await app.query(`insert into public.users (email) values ('eve@example.org')`);
+      await app.query(`insert into auth.users (id, email) values ('00000000-0000-4000-8000-000000000005', 'eve@example.org')`);
+      assert.equal(await num(app, `select count(*) from public.profiles where email = 'eve@example.org'`), 1);
+      assert.equal(await num(app, `select count(*) from public.users where lower(email) = 'eve@example.org'`), 1);
+      await app.query(`delete from auth.users where email = 'eve@example.org'`);
+      await app.query(`delete from public.users where email = 'eve@example.org'`);
     });
 
     /* ---------------------------------------------------------- constraints */
@@ -816,7 +825,8 @@ async function main() {
 
     await test("row-level security: a visitor sees none of the server-only tables", async () => {
       for (const t of ["companies", "company_tickers", "filings", "news", "news_sources", "summaries", "fundamentals_snapshots",
-        "alert_events", "broadcasts", "inquiries", "picks", "users", "watchlists", "backfill_runs"]) {
+        "alert_events", "broadcasts", "inquiries", "picks", "users", "watchlists", "backfill_runs", "job_state", "summary_jobs",
+        "login_tokens", "sessions", "suppressions", "digests", "rate_limits"]) {
         assert.equal(await as("anon", null, () => num(app, `select count(*) from public.${t}`)), 0, t);
       }
       await as("anon", null, () => assert.rejects(app.query(`select count(*) from public.alert_subscriptions`), /permission denied/));

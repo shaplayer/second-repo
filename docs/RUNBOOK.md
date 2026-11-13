@@ -74,7 +74,7 @@ See what would be applied:
 npm run db:migrate -- --dry-run
 ```
 
-You should see thirteen files dated `20261112…` listed as "would apply", and seven older files counted
+You should see every file dated `202611…` listed as "would apply", and seven older files counted
 as already applied. Then apply them:
 
 ```bash
