@@ -795,6 +795,11 @@ const ADMIN_URL =
   `postgresql://${encodeURIComponent(process.env.PGUSER ?? os.userInfo().username)}@localhost/postgres?host=/var/run/postgresql`;
 
 async function database() {
+  // On a server (scripts/deploy.sh) the checks must never touch whatever Postgres happens to run there.
+  if (process.argv.includes("--no-db")) {
+    console.log("health check: saving a snapshot SKIPPED (--no-db).");
+    return;
+  }
   const admin = describeTarget(ADMIN_URL);
   if (!admin.isLocal) throw new Error(`The snapshot test only runs against a local Postgres. TEST_PG_URL points at ${admin.host}.`);
   const root = new Client({ connectionString: ADMIN_URL });

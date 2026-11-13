@@ -20,7 +20,7 @@ npm ci
 echo "== 3/6 Checks"
 npm run lint
 npx tsx scripts/test-unit.ts
-npx tsx scripts/test-health.ts
+npx tsx scripts/test-health.ts --no-db   # the checks never touch a database on this server
 
 echo "== 4/6 Database changes"
 npm run db:migrate -- --yes

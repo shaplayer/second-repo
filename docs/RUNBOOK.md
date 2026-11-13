@@ -36,7 +36,21 @@ with `main`.)
 | Supabase's certificate file | Supabase dashboard, your project, **Database settings**, "SSL Configuration", **Download certificate**. Save it on the Droplet, for example as `~/supabase-ca.crt` |
 | Your SEC contact line | Your real company name and an email address someone reads, for example `Acme Research LLC sec-contact@acme-research.com` |
 
-Put them in the `.env` file in the project folder on the Droplet (never in git, never in chat):
+Make the settings file once, from the example, and protect it:
+
+```bash
+cp .env.example .env
+```
+
+```bash
+chmod 600 .env
+```
+
+```bash
+nano .env
+```
+
+Fill in these four lines now (never in git, never in chat). The rest of the file is for Part B:
 
 ```
 DATABASE_URL=<the Supabase connection string>
@@ -44,6 +58,9 @@ DATABASE_SSL_CA=/home/<you>/supabase-ca.crt
 DATASITE_DATABASE_URL=<the data site's connection string>
 SEC_USER_AGENT="<your company name> <your monitored email>"
 ```
+
+The server needs Node.js 20 or newer (`node -v` shows the version; 22 is what the checks run on) and
+PM2, which the data site already uses.
 
 The connection to Supabase is always encrypted, because it carries email addresses and consent
 records. With the `DATABASE_SSL_CA` line, every tool and the site also check that the server at the
@@ -223,11 +240,10 @@ If the switch-over has to be repeated before the new site has opened to visitors
 The new site runs beside the old one (its own folder, its own port 3001) until you switch Nginx over.
 Until step B6 visitors see only the old sites.
 
-### B1. Fill in `.env`
+### B1. Fill in the rest of `.env`
 
-```bash
-cp .env.example .env
-```
+Open the same file you made in A1 (do not copy the example over it again: that would wipe the four
+lines you filled in):
 
 ```bash
 nano .env
@@ -247,11 +263,7 @@ Each line is explained in the file. What you need to have ready:
 | `ANTHROPIC_API_KEY` | console.anthropic.com. Without it the site works but writes no summaries |
 | `INQUIRY_NOTIFY_TO` | Where sponsor inquiries should be emailed |
 
-Keep `ALERTS_SENDING=off` in `.env` for now (add that line). Protect the file:
-
-```bash
-chmod 600 .env
-```
+Keep `ALERTS_SENDING=off` in `.env` for now (add that line).
 
 ### B2. Publish the new code (beside the old site)
 
