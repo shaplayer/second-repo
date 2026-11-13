@@ -79,9 +79,10 @@ async function processOne(db: Db, sec: SecClient, f: Todo): Promise<void> {
   if (base === "8-K" || base === "6-K") {
     const release = pickPressRelease(docs);
     if (release) {
-      const text = htmlToText(await sec.text(release.url));
+      const html = await sec.text(release.url);
+      const text = htmlToText(html);
       if (text) {
-        title = releaseTitle(text, f.company_name);
+        title = releaseTitle(htmlToText(html, { layout: true }), f.company_name);
         const listed = Boolean(f.exchange && f.exchange.trim());
         await db.query(
           `insert into public.news (source, accession, exhibit, cik, ticker, company_name, title, body_text, url, published_at)

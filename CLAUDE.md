@@ -34,8 +34,8 @@ design is the canvas named in decision 8. `docs/RUNBOOK.md` has the steps the ow
   never happen on a GET, because mail scanners open every link.
 - Pages and API routes read the database only. They never call the SEC, Claude or any other outside service: the worker
   (`scripts/worker.ts`) does that.
-- The health check rules live in `lib/health`. The growth-company rule set stays off (`HEALTH_GROWTH_RULES`) until the
-  owner approves it (plan decision 9).
+- The health check rules live in `lib/health`. The growth-company rule set was approved by the owner on Nov 13, 2026 (plan
+  decision 9) and is on; `HEALTH_GROWTH_RULES=0` switches it off. Changing a check or a threshold needs the owner's OK.
 
 ## Where things are
 - `app/`, `components/`: the site, in the approved design (tokens and component classes in `app/globals.css`).

@@ -36,7 +36,10 @@ function text(node: unknown): string {
   return "";
 }
 
-const stripHtml = (s: string) => s.replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/\s+/g, " ").trim();
+// Feeds sometimes escape a character twice ("&amp;apos;"), which leaves a named code behind after parsing.
+const LEFTOVER: Record<string, string> = { "&apos;": "'", "&#39;": "'", "&quot;": '"', "&amp;": "&", "&lt;": "<", "&gt;": ">" };
+const stripHtml = (s: string) =>
+  s.replace(/<[^>]*>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/&(?:apos|#39|quot|amp|lt|gt);/g, (m) => LEFTOVER[m]).replace(/\s+/g, " ").trim();
 
 // "(NASDAQ: ABCD)", "NYSE American: XYZ", "OTCQB:ABCD", "Nasdaq: ABCD, ABCDW", "(NYSE: BRK.B)"
 const US_MARKET =
@@ -68,6 +71,20 @@ function extractCompany(desc: string): string | null {
 }
 
 /**
+ * Law firms pay the newswires to publish notices that name a company in order to find plaintiffs
+ * ("SHAREHOLDER ALERT: ... Class Action Against NVIDIA"). They carry the company's ticker but are not
+ * news from the company, and several firms publish one for the same company every day. Left out.
+ */
+const LAW_NOTICE_STRONG =
+  /\bclass[- ]action\b|\blead plaintiff\b|\bsecurities (?:fraud|lawsuit|litigation)\b|\blaw (?:firm|offices?)\b|\b(?:shareholder|stockholder|investor|deadline)s?['’]?\s+(?:alert|deadline|notice|action)\b|\binvestigat(?:es|ing|ion)\b.{0,60}\bon behalf of\b|\binvestigates claims\b/i;
+const LAW_NOTICE_CALL = /\b(?:encourages?|encouraged|urges?|reminds?|notifies|alerts?)\b/i;
+const LAW_NOTICE_WHO = /\b(?:investors?|shareholders?|stockholders?)\b/i;
+const LAW_NOTICE_WHY = /\b(?:loss(?:es)?|deadline|lawsuit|investigation|inquire|contact (?:the firm|us|counsel)|to contact|legal rights)\b/i;
+export function isLawFirmNotice(title: string): boolean {
+  return LAW_NOTICE_STRONG.test(title) || (LAW_NOTICE_CALL.test(title) && LAW_NOTICE_WHO.test(title) && LAW_NOTICE_WHY.test(title));
+}
+
+/**
  * The feed's releases that name a public company's ticker. Items with no title, no https link, no
  * readable time or no ticker are left out. Never throws: an unreadable feed gives an empty list.
  */
@@ -86,8 +103,12 @@ export function parsePressRss(body: string): PressItem[] {
       const title = stripHtml(text(it.title));
       const linkNode = it.link as unknown;
       const first = Array.isArray(linkNode) ? linkNode[0] : linkNode;
-      const url = (String((first as Record<string, unknown> | null)?.["@_href"] ?? "") || text(first)).trim() || text(it.guid).trim();
+      // Business Wire still writes its links as http; on the newswires we know, the same address works as https,
+      // which is what we keep. An http link to anywhere else is still left out.
+      const url = ((String((first as Record<string, unknown> | null)?.["@_href"] ?? "") || text(first)).trim() || text(it.guid).trim())
+        .replace(/^http:\/\/((?:[a-z0-9-]+\.)*(?:businesswire|prnewswire|globenewswire|accessnewswire)\.com\/)/i, "https://$1");
       if (!title || !/^https:\/\/[^\s]+$/.test(url) || seen.has(url)) continue;
+      if (isLawFirmNotice(title)) continue;
       const description = stripHtml(text(it.description) || text(it.summary) || text(it["content:encoded"]));
       const categories = (Array.isArray(it.category) ? (it.category as unknown[]) : []).map(text).join(" ");
       const found = findTickers(title, description, categories);

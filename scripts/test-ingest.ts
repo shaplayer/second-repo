@@ -21,7 +21,7 @@ import type { Db } from "../lib/ingest/db";
 import { MAX_BODY_CHARS, processFilingDetails } from "../lib/ingest/detail";
 import { pollCurrentFilings } from "../lib/ingest/filings";
 import { PRESS_FEEDS, PRESS_USER_AGENT, pollPressFeeds, resetPressBackoff } from "../lib/ingest/press";
-import { extractTicker, parsePressRss } from "../lib/ingest/rss";
+import { extractTicker, isLawFirmNotice, parsePressRss } from "../lib/ingest/rss";
 import { runJob, setJobDetail } from "../lib/ingest/state";
 import { createSecClient, SecHttpError, SEC_PAUSE_MS, type SecClient } from "../lib/sec/client";
 import { currentFeedUrl, newYorkDate, parseCurrentFeed } from "../lib/sec/current-feed";
@@ -533,6 +533,78 @@ async function parserTests() {
       releaseTitle(`Exhibit 99.1\nBOSTON, Nov. 04, 2026 (GLOBE NEWSWIRE) -- Northwind Biotherapeutics, Inc. (NASDAQ: NWBT), a clinical-stage company, today announced ${"results ".repeat(30)}\nA later line that looks like a headline`, "Northwind"),
       null,
     );
+    // Shapes seen in a day of real filings (Nov 13, 2026). Each is how one real exhibit was laid out.
+    const title = (html: string, company: string) => releaseTitle(htmlToText(html, { layout: true }), company);
+    // The filing system's wrapper, and a headline that the filing software wrapped onto two source lines.
+    assert.equal(
+      title(`<DOCUMENT>\n<TYPE>EX-99.1\n<SEQUENCE>2\n<FILENAME>ex99-1.htm\n<DESCRIPTION>EX-99.1\n<TEXT>\n<HTML><BODY>
+        <P><B>Exhibit\n99.1</B></P><P>&nbsp;</P>
+        <P><FONT><B>NORTHWIND\nLtd. Announces Receipt of Exchange Notice of Trading Suspension</B></FONT></P><P>&nbsp;</P>
+        <P>ALLEN,\nTexas &ndash; November 12, 2026 &ndash; Northwind Ltd. (NYSE American: NWBT) announced that it was notified.</P></BODY></HTML>\n</TEXT>\n</DOCUMENT>`, "NORTHWIND LTD."),
+      "NORTHWIND Ltd. Announces Receipt of Exchange Notice of Trading Suspension",
+    );
+    // A headline set on two paragraphs, with an empty paragraph after it.
+    assert.equal(
+      title(`<p><b>FIRST HALCYON CORPORATION ANNOUNCES 11.8% INCREASE </b></p><p><b>IN QUARTERLY CASH DIVIDENDS</b></p><p>&nbsp;</p>
+        <p>STRASBURG, Va., November 12, 2026 (GLOBE NEWSWIRE) -- First Halcyon Corporation announced a dividend.</p>`, "FIRST HALCYON CORP /VA/"),
+      "FIRST HALCYON CORPORATION ANNOUNCES 11.8% INCREASE IN QUARTERLY CASH DIVIDENDS",
+    );
+    assert.equal(
+      title(`<p><b>Halcyon Reports Third Quarter 2026 Financial Results and Provides Business</b></p><p><b>Update</b></p><p>&nbsp;</p><p><i>Revenue increased 18% year-over-year to $3.6 million</i></p>`, "Halcyon Ltd."),
+      "Halcyon Reports Third Quarter 2026 Financial Results and Provides Business Update",
+    );
+    // A line break inside the headline's own paragraph; the sub-heading after it is not part of the headline.
+    assert.equal(
+      title(`<P><B>Halcyon Reports First Revenue of ~$1.0 Million and Announces $8.0 Million <BR> Funding Commitment From Its Chief Executive</B></P>
+        <P><B><I>Third Quarter 2026 Highlights:</I></B></P>`, "Halcyon N.V."),
+      "Halcyon Reports First Revenue of ~$1.0 Million and Announces $8.0 Million Funding Commitment From Its Chief Executive",
+    );
+    assert.equal(
+      title(`<p><b>Halcyon Announces Q3 2026 Earnings Results</b></p><p><b>Revenue Up 163% Compared to Q3 2025 and Up 45% Compared to Q2 2026</b></p><p>&nbsp;</p>`, "Halcyon, Inc."),
+      "Halcyon Announces Q3 2026 Earnings Results",
+    );
+    // Contacts above the headline: names, titles, credentials, the company's short name, phone numbers.
+    assert.equal(
+      title(`<p>Media Contact:</p><p>Investor Relations Contact:</p><p>&nbsp;</p><p>Andrea Duffy Michael J. Melnyk, CFA</p><p>Halcyon Halcyon</p><p>646-555-0141</p>
+        <p>aduffy@halcyon.test</p><p>&nbsp;</p><p>Halcyon Announces CFO Transition</p><p>&nbsp;</p><p>Danielle Abrahamsen Appointed Interim Chief Financial Officer</p>`, "HALCYON GRID SYSTEMS INC"),
+      "Halcyon Announces CFO Transition",
+    );
+    assert.equal(
+      title(`<p>FOR IMMEDIATE RELEASE</p><p>CONTACTS:<br>LARA E. RAMSEY, PRESIDENT &amp; CEO<br>(540) 555-0150 lramsey@bank.test</p>
+        <p>NORTHWIND BANKSHARES, INC. DECLARES SEMI-ANNUAL DIVIDEND</p>`, "NORTHWIND BANKSHARES INC"),
+      "NORTHWIND BANKSHARES, INC. DECLARES SEMI-ANNUAL DIVIDEND",
+    );
+    // The company's name on one line and the rest of the headline on the next.
+    assert.equal(
+      title(`<p>EXHIBIT 99.1</p><p>&nbsp;</p><p>Friday, November 13, 2026<br>Contact:<br>Jason Long<br>Chief Financial Officer<br>(804) 555-0160</p><p>&nbsp;</p>
+        <p>C&amp;F Financial Corporation<br>Announces Increase in Quarterly Dividend</p><p>&nbsp;</p><p>Toano, VA -- The Board of Directors has declared a dividend.</p>`, "C & F FINANCIAL CORP"),
+      "C&F Financial Corporation Announces Increase in Quarterly Dividend",
+    );
+    // A postal address under the letterhead.
+    assert.equal(
+      title(`<p>HALCYON GRID<br>111 Congress Avenue, Suite 500<br>Austin, Texas 78701, United States</p><p>&nbsp;</p>
+        <p>Halcyon Grid Issues Shareholder Letter from CEO, Rapha Zagury</p><p>AUSTIN, Texas — November 13, 2026 — Halcyon Grid Systems Corp today published its letter.</p>`, "Halcyon Grid Systems Corp"),
+      "Halcyon Grid Issues Shareholder Letter from CEO, Rapha Zagury",
+    );
+    // A release filed as one run of text: the headline stands before the city in capitals.
+    assert.equal(
+      title(`<div>1 News Release Halcyon Announces Promotion of Bernard Lancaster to President OKLAHOMA CITY – November 13, 2026 – Halcyon Grid Systems Corp (“Halcyon” or the “Company”) (NASDAQ: HGRD) today announced the promotion of Bernard Lancaster from Chief Operating Officer to President, effective immediately, as part of its plan.</div>`, "Halcyon Grid Systems Corp"),
+      "Halcyon Announces Promotion of Bernard Lancaster to President",
+    );
+    // A headline that mentions a date is not a dateline; a letter and a table of contents have no headline.
+    assert.equal(
+      title(`<p>Exhibit 99.1</p><p>&nbsp;</p><p>General Meeting of November 12, 2026: Quorum Not Met</p><p>&nbsp;</p><p>Notice of a second General Meeting on November 27, 2026</p>`, "Northwind SA"),
+      "General Meeting of November 12, 2026: Quorum Not Met",
+    );
+    assert.equal(title(`<p>Exhibit 99.1</p><p>November 13, 2026</p><p>Dear Shareholder:</p><p>As we approach the holiday season we are grateful.</p><p>A Strong Year for Our Bank</p>`, "X Corp"), null);
+    assert.equal(
+      title(`<p>Exhibit 99.1</p><p>HALCYON CORPORATION</p><p>INDEX TO CONSOLIDATED FINANCIAL STATEMENTS</p><p>Unaudited Condensed Consolidated Financial Statements</p><p>Page</p>
+        <p>Condensed Consolidated Statements of Financial Position as of September 30, 2026 1</p>`, "Halcyon Corp"),
+      "Unaudited Condensed Consolidated Financial Statements",
+    );
+    // Stored text: the wrapper is gone, a line break in the page's source is a space, plain text keeps its lines.
+    assert.equal(htmlToText("<DOCUMENT>\n<TYPE>EX-99.1\n<FILENAME>a.htm\n<TEXT>\n<html><body><p>One\ntwo</p><p>three<br>four</p></body></html>\n</TEXT>\n</DOCUMENT>"), "One two\nthree\nfour");
+    assert.equal(htmlToText("First line\nSecond line"), "First line\nSecond line");
     assert.equal(releaseTitle("", "X"), null);
     assert.equal(releaseTitle("SHORT\nTOO SHORT\n12345 67890 12345 67890", "X"), null);
     assert.equal(releaseTitle("x".repeat(201) + "\nA headline that follows a very long line", "X"), "A headline that follows a very long line");
@@ -762,6 +834,28 @@ async function parserTests() {
       <item><title>No time (NYSE: HGRD)</title><link>https://wire.test/d</link></item>
     </channel></rss>`);
     assert.deepEqual(odd.map((i) => [i.url, i.ticker, i.usListed]), [["https://wire.test/a", "HGRD", false]]);
+    // A link written as http is kept as https (Business Wire); a law firm's notice about a company is not company news.
+    const wire = parsePressRss(`<rss><channel>
+      <item><title>Cloudflare&amp;apos;s Platform Placed in 2026 Report</title><pubDate>Fri, 13 Nov 2026 14:00:00 UT</pubDate>
+        <description>SAN FRANCISCO--(BUSINESS WIRE)--Cloudflare, Inc. (NYSE: NET), the connectivity cloud company, today announced.</description>
+        <link>http://www.businesswire.com/news/home/20261113819679/en/Cloudflare</link></item>
+      <item><title>SHAREHOLDER ALERT: Bronstein, Gewirtz &amp; Grossman, LLC Announces Class Action Against NVIDIA Corporation</title>
+        <pubDate>Fri, 13 Nov 2026 14:00:00 GMT</pubDate><description>Notice to investors of NVIDIA (NASDAQ: NVDA).</description>
+        <link>https://www.prnewswire.com/news-releases/alert-1.html</link></item>
+    </channel></rss>`);
+    assert.equal(wire[0]?.title, "Cloudflare's Platform Placed in 2026 Report");
+    assert.deepEqual(wire.map((w) => [w.ticker, w.url, w.publishedAt]), [["NET", "https://www.businesswire.com/news/home/20261113819679/en/Cloudflare", "2026-11-13T14:00:00.000Z"]]);
+    for (const t of [
+      "BETR 1-WEEK DEADLINE ALERT: Better Home & Finance Holding Company Investors with Substantial Losses Encouraged to Contact Hagens Berman Before Nov. 20th Deadline in Securities Class Action",
+      "Pomerantz LLP Investigates Claims On Behalf of Investors of Acme Corp",
+      "Rosen Law Firm Encourages Acme Corp Investors to Inquire About Securities Investigation",
+      "Levi & Korsinsky Reminds Acme Shareholders of the December 1 Deadline",
+      "INVESTOR ALERT: Acme Corp",
+    ]) assert.equal(isLawFirmNotice(t), true, t);
+    for (const t of [
+      "Acme Corp Reports Third Quarter 2026 Results", "Acme Corp Reminds Shareholders to Vote at the Annual Meeting",
+      "Acme Announces Investor Day", "Acme Completes Acquisition of Beta Law Technology", "Acme Corp Announces Settlement of Patent Lawsuit",
+    ]) assert.equal(isLawFirmNotice(t), false, t);
     assert.deepEqual(parsePressRss("<html>403 Forbidden</html>"), []);
     assert.deepEqual(parsePressRss(""), []);
   });

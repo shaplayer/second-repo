@@ -22,10 +22,11 @@ export function postalAddress(env: NodeJS.ProcessEnv = process.env): string | nu
 export const smsEnabled = (env: NodeJS.ProcessEnv = process.env) => env.SMS_ENABLED === "1";
 
 /**
- * The separate health check rules for young, unprofitable companies (plan decision 9). Off until the
- * owner approves the proposal: until then every company is scored with the standard rules.
+ * The separate health check rules for young, unprofitable companies (plan decision 9). Approved by the
+ * owner on Nov 13, 2026, so they are on. HEALTH_GROWTH_RULES=0 scores every company with the standard
+ * rules again.
  */
-export const growthRulesEnabled = (env: NodeJS.ProcessEnv = process.env) => env.HEALTH_GROWTH_RULES === "1";
+export const growthRulesEnabled = (env: NodeJS.ProcessEnv = process.env) => env.HEALTH_GROWTH_RULES !== "0";
 
 /**
  * Numbers shown to visitors and sponsors. Only verified numbers go here: sponsors will check them.
