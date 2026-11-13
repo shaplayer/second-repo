@@ -34,8 +34,9 @@ import { pollCurrentFilings } from "../lib/ingest/filings";
 import { pollPressFeeds } from "../lib/ingest/press";
 import { runJob, setJobDetail } from "../lib/ingest/state";
 import { clearOldLimits } from "../lib/limits";
-import { createSecClient } from "../lib/sec/client";
+import { createSecClient, type SecClient } from "../lib/sec/client";
 import { parseTickerFile, SEC_TICKERS_EXCHANGE_URL } from "../lib/sec/companies";
+import type { Summarizer } from "../lib/summaries/claude";
 import { processSummaryJobs } from "../lib/summaries/jobs";
 
 const NY = "America/New_York";
@@ -48,14 +49,33 @@ const nyParts = (d = new Date()) => {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export type WorkerOptions = {
+  db: Pool;
+  sec: SecClient;
+  /** Send alert emails. Off for the side-by-side check before going live. */
+  sending: boolean;
+  /** Write AI summaries (needs ANTHROPIC_API_KEY). */
+  summaries: boolean;
+  /** Run every job once, including the daily ones, and return (the deploy check and the tests). */
+  once: boolean;
+  /** Replaceable for tests: the fetch used for newswire feeds, and the writer of summaries. */
+  pressFetch?: typeof fetch;
+  summarizer?: Summarizer;
+};
+
 async function main() {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is not set");
   const sec = createSecClient(); // throws here, at start, when SEC_USER_AGENT is missing or a placeholder
   const db = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
   const sending = (process.env.ALERTS_SENDING ?? "on").toLowerCase() !== "off";
-  const once = process.env.WORKER_ONCE === "1";
   const summaries = Boolean(process.env.ANTHROPIC_API_KEY);
   console.log(`[worker] started. Sending email: ${sending ? "on" : "OFF"}. Summaries: ${summaries ? "on" : "OFF (no ANTHROPIC_API_KEY)"}. Email service: ${emailProvider().name}.`);
+  await runWorker({ db, sec, sending, summaries, once: process.env.WORKER_ONCE === "1" });
+  await db.end();
+  console.log("[worker] stopped.");
+}
+
+export async function runWorker({ db, sec, sending, summaries, once, pressFetch, summarizer }: WorkerOptions): Promise<void> {
 
   let stopping = false;
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { stopping = true; console.log(`[worker] ${sig}: finishing the current job, then stopping.`); });
@@ -71,7 +91,10 @@ async function main() {
   };
   /** Runs `fn` once a day, the first time the New York clock passes hour:minute. Remembers the day in job_state. */
   const daily = async (job: string, hour: number, minute: number, fn: () => Promise<unknown>) => {
-    if (once) return;
+    if (once) {
+      await runJob(db, job, fn);
+      return;
+    }
     while (!stopping) {
       const now = nyParts();
       const { rows } = await db.query<{ day: string | null }>(`select detail->>'day' as day from public.job_state where job = $1`, [job]).catch(() => ({ rows: [] }));
@@ -89,29 +112,29 @@ async function main() {
   };
 
   const loops = [
-    every("filings", () => (filingHours() ? 10_000 : 60_000), async () => {
+    () => every("filings", () => (filingHours() ? 10_000 : 60_000), async () => {
       const r = await pollCurrentFilings(db, sec);
       await classifyFilings(db, 2000);
       const m = await matchNewItems(db);
       await setJobDetail(db, "filings:last", { pages: r.fetchedPages, new: r.newFilings.length, alerts: m.events, at: new Date().toISOString() });
     }),
-    every("details", () => 2_000, () => processFilingDetails(db, sec, { limit: 10 })),
-    every("press", () => 600_000, async () => {
-      await pollPressFeeds(db);
+    () => every("details", () => 2_000, () => processFilingDetails(db, sec, { limit: 10 })),
+    () => every("press", () => 600_000, async () => {
+      await pollPressFeeds(db, pressFetch ? { fetch: pressFetch } : {});
       await matchNewItems(db);
     }),
-    every("match", () => 2_000, () => matchNewItems(db)),
-    every("summaries", () => 2_000, async () => {
-      if (summaries) await processSummaryJobs(db, sec, { limit: 3 });
+    () => every("match", () => 2_000, () => matchNewItems(db)),
+    () => every("summaries", () => 2_000, async () => {
+      if (summaries) await processSummaryJobs(db, sec, { limit: 3, summarizer });
     }),
-    every("send", () => 2_000, async () => {
+    () => every("send", () => 2_000, async () => {
       if (!sending) return;
       for (let i = 0; i < 20; i++) {
         const r = await sendQueuedAlerts(db, { limit: 500 });
         if (r.sent + r.failed + r.retrying + r.suppressed === 0) break;
       }
     }),
-    every("companies", () => 5_000, async () => {
+    () => every("companies", () => 5_000, async () => {
       // Never-checked companies first: someone just opened their page and is waiting.
       const today = nyParts().date;
       for (const cik of await nextCompaniesToRefresh(db, "profile", 3, 24 * 365)) await refreshCompanyProfile(db, sec, cik);
@@ -119,7 +142,7 @@ async function main() {
         await refreshCompanyHealth(db, sec, cik, { today, growthRules: growthRulesEnabled() });
       }
     }),
-    every("housekeeping", () => 3_600_000, async () => {
+    () => every("housekeeping", () => 3_600_000, async () => {
       await clearExpiredAuth(db);
       await clearOldLimits(db);
       await retryInquiryNotices(db);
@@ -131,10 +154,10 @@ async function main() {
             and not exists (select 1 from public.alert_subscriptions s where s.cik = c.cik and s.status = 'active')`,
       );
     }),
-    daily("digest", 18, 0, async () => {
+    () => daily("digest", 18, 0, async () => {
       if (sending) await sendDigests(db);
     }),
-    daily("nightly", 2, 30, async () => {
+    () => daily("nightly", 2, 30, async () => {
       const today = nyParts().date;
       // The SEC's company and ticker list: new listings, ticker changes.
       const list = parseTickerFile(await sec.json(SEC_TICKERS_EXCHANGE_URL));
@@ -164,9 +187,12 @@ async function main() {
       }
     }),
   ];
-  await Promise.all(loops);
-  await db.end();
-  console.log("[worker] stopped.");
+  if (once) {
+    // One job at a time, in the order a real day would run them, so the result is the same every time.
+    for (const loop of loops) await loop();
+    return;
+  }
+  await Promise.all(loops.map((loop) => loop()));
 }
 
 /** Sponsor inquiries whose notification email to the team failed are tried again. */
@@ -186,7 +212,10 @@ async function retryInquiryNotices(db: Pool): Promise<void> {
   }
 }
 
-main().catch((e) => {
-  console.error("[worker] could not start:", (e as Error).message);
-  process.exit(1);
-});
+// Started as a program (not imported by a test): run.
+if (process.argv[1] && /(^|[\\/])worker\.ts$/.test(process.argv[1])) {
+  main().catch((e) => {
+    console.error("[worker] could not start:", (e as Error).message);
+    process.exit(1);
+  });
+}

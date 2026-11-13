@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "test": "tsx scripts/test-unit.ts && tsx scripts/test-health.ts && tsx scripts/test-ingest.ts && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available && tsx scripts/test-summaries.ts --if-available",
+    "test": "tsx scripts/test-unit.ts && tsx scripts/test-health.ts && tsx scripts/test-ingest.ts && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available && tsx scripts/test-summaries.ts --if-available && tsx scripts/test-worker.ts --if-available",
     "test:db": "tsx scripts/test-db.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "companies:load": "tsx scripts/load-companies.ts",
