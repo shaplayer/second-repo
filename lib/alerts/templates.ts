@@ -12,6 +12,7 @@
  */
 import type { FeedItem } from "../data/feed";
 import { sponsorLine, type StockPick } from "../data/picks";
+import { insiderGroupText } from "../feed-groups";
 
 export type EmailParts = { subject: string; text: string; html: string; headers?: Record<string, string> };
 
@@ -195,6 +196,28 @@ export function alertEmail(o: { item: FeedItem; footer: Footer }): EmailParts {
   const subject = `${tickerOf(it)}: ${it.headline}`.slice(0, 180);
   const text = [...itemText(it, o.footer.siteUrl), "", footerText(o.footer)].join("\n");
   const html = layout(subject, itemHtml(it, o.footer.siteUrl), footerHtml(o.footer));
+  return { subject, text, html, headers: listHeaders(o.footer) };
+}
+
+/** Several insiders at one company reported trades within minutes of each other: one email with all of them. */
+export function insiderBurstEmail(o: { items: FeedItem[]; footer: Footer }): EmailParts {
+  const first = o.items[0];
+  const words = insiderGroupText(o.items);
+  const subject = `${tickerOf(first)}: ${words.headline}`.slice(0, 180);
+  const text = [
+    `${tickerOf(first)}: ${words.headline}`,
+    `${words.breakdown}.`,
+    "",
+    ...o.items.flatMap((it) => [...itemText(it, o.footer.siteUrl), "", "----", ""]),
+    footerText(o.footer),
+  ].join("\n");
+  const html = layout(
+    subject,
+    `<p style="margin:0 0 6px;font-size:22px;font-weight:800;line-height:1.3">${esc(tickerOf(first))}: ${esc(words.headline)}</p>` +
+      `<p style="margin:0 0 20px;font-size:15px;color:${MUTED}">${esc(words.breakdown)}.</p>` +
+      o.items.map((it) => itemHtml(it, o.footer.siteUrl)).join(`<hr style="border:0;border-top:1px solid #edf2ef;margin:20px 0">`),
+    footerHtml(o.footer),
+  );
   return { subject, text, html, headers: listHeaders(o.footer) };
 }
 

@@ -49,7 +49,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * The headline and one line of detail for a burst. Says what happened, never what to do: "bought" and
  * "sold" here are what the insiders reported, in the past tense.
  */
-export function insiderGroupText(items: readonly FeedItem[]): { headline: string; detail: string } {
+export function insiderGroupText(items: readonly FeedItem[]): { headline: string; breakdown: string; detail: string } {
   let bought = 0;
   let sold = 0;
   for (const it of items) {
@@ -62,8 +62,10 @@ export function insiderGroupText(items: readonly FeedItem[]): { headline: string
   if (bought) parts.push(`${bought} bought on the open market`);
   if (sold) parts.push(`${sold} sold on the open market`);
   if (other) parts.push(bought || sold ? `${other} through awards or other transfers` : "All through stock awards or other transfers, not open-market trades");
+  const breakdown = parts.join(" · ");
   return {
     headline: `${plural(items.length, "insider", "insiders")} reported trades`,
-    detail: `${parts.join(" · ")}. Open to see each one.`,
+    breakdown,
+    detail: `${breakdown}. Open to see each one.`,
   };
 }

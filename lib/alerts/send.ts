@@ -10,6 +10,9 @@
  * - A failure is retried later (after 1, 5, 15 and 60 minutes), then marked 'failed' with the reason.
  * - Alert emails are not sent at all until the business postal address is set (the law requires it
  *   in every such email).
+ * - Insider trades from one company that arrive together go out as one email. Every insider-trade
+ *   alert waits a few minutes to see whether others follow; three or more for the same follower
+ *   become one email, fewer go out one by one. Trades on different days are never merged.
  * - Email only. Nothing here can send a text.
  */
 import { createHash } from "node:crypto";
@@ -19,7 +22,7 @@ import { getFeedItem, type FeedItem } from "../data/feed";
 import { getPick, type StockPick } from "../data/picks";
 import { emailProvider, type EmailMessage, type EmailProvider } from "../email";
 import { inTransaction } from "./subscriptions";
-import { alertEmail, digestEmail, pickEmail, type EmailParts, type Footer } from "./templates";
+import { alertEmail, digestEmail, insiderBurstEmail, pickEmail, type EmailParts, type Footer } from "./templates";
 
 type Db = Pool | PoolClient | Client;
 
@@ -29,6 +32,10 @@ const RETRY_MINUTES = [1, 5, 15, 60];
 export const SUMMARY_WAIT_SECONDS = 90;
 /** An alert that could not be sent within this many hours is dropped, never sent late. */
 export const STALE_AFTER_HOURS = 6;
+/** How long an insider-trade alert waits for others from the same company before it is sent. */
+export const INSIDER_HOLD_SECONDS = 300;
+/** This many insider trades for one follower at once become one email; fewer are sent one by one. */
+export const BURST_MIN = 3;
 
 export type SendResult = { sent: number; failed: number; retrying: number; suppressed: number };
 export type SendOptions = { provider?: EmailProvider; limit?: number };
@@ -36,6 +43,8 @@ export type SendOptions = { provider?: EmailProvider; limit?: number };
 type Claimed = {
   id: string; subscription_id: string; item_type: "filing" | "news" | "pick"; item_ref: string; attempts: number;
   status: string; address: string; unsubscribe_token: string; cik: string | null; suppressed: boolean;
+  /** Set when this alert was put into a combined email on an earlier try: it is retried with the same ones. */
+  batch_key: string | null;
 };
 
 function requireAddress(provider: EmailProvider): string | null {
@@ -113,18 +122,29 @@ export async function sendQueuedAlerts(db: Db, opts: SendOptions = {}): Promise<
                                   where j.status in ('queued', 'working')
                                     and ((e.item_type = 'filing' and j.accession = e.item_ref)
                                       or (e.item_type = 'news' and j.news_id::text = e.item_ref))))
+            -- An insider trade waits a few minutes, so that a burst from one company can go out as one email.
+            and not (e.item_type = 'filing' and e.batch_key is null and e.created_at > now() - make_interval(secs => $3)
+                     and exists (select 1 from public.filings f where f.accession = e.item_ref and f.category = 'insider'))
           order by e.next_attempt_at, e.id
           limit $1
             for update skip locked
+       ),
+       -- An email that is being retried is retried whole: bring in the rest of its alerts.
+       whole as (
+         select id from picked
+         union
+         select e.id from public.alert_events e
+          where e.status = 'queued'
+            and e.batch_key in (select b.batch_key from public.alert_events b join picked p on p.id = b.id where b.batch_key is not null)
        )
        update public.alert_events e
           set status = 'sending', attempts = e.attempts + 1, next_attempt_at = now() + interval '10 minutes'
-         from picked p, public.alert_subscriptions s
+         from whole p, public.alert_subscriptions s
         where e.id = p.id and s.id = e.subscription_id
         returning e.id::text as id, e.subscription_id::text as subscription_id, e.item_type, e.item_ref, e.attempts,
-                  s.status, s.address, s.unsubscribe_token, s.cik::text as cik,
+                  s.status, s.address, s.unsubscribe_token, s.cik::text as cik, e.batch_key,
                   (s.channel <> 'email' or exists (select 1 from public.suppressions x where x.channel = s.channel and x.address = s.address)) as suppressed`,
-      [Math.min(Math.max(opts.limit ?? 500, 1), 2000), SUMMARY_WAIT_SECONDS],
+      [Math.min(Math.max(opts.limit ?? 500, 1), 2000), SUMMARY_WAIT_SECONDS, INSIDER_HOLD_SECONDS],
     );
     return rows;
   });
@@ -153,14 +173,54 @@ export async function sendQueuedAlerts(db: Db, opts: SendOptions = {}): Promise<
     );
   }
 
-  const groups = new Map<string, Claimed[]>();
+  const present: Claimed[] = [];
   for (const e of ready) {
-    const key = `${e.item_type}:${e.item_ref}`;
-    if (!items.get(key)) {
-      await db.query(`update public.alert_events set status = 'failed', error = 'the item no longer exists' where id = $1`, [e.id]);
-      result.failed++;
+    if (items.get(`${e.item_type}:${e.item_ref}`)) {
+      present.push(e);
       continue;
     }
+    await db.query(`update public.alert_events set status = 'failed', error = 'the item no longer exists' where id = $1`, [e.id]);
+    result.failed++;
+  }
+
+  // Insider trades for the same follower that arrived together: one email for all of them.
+  const isInsider = (e: Claimed) => e.item_type === "filing" && (items.get(`filing:${e.item_ref}`) as FeedItem).category === "insider";
+  const bursts = new Map<string, Claimed[]>();
+  const fresh = new Map<string, Claimed[]>();
+  for (const e of present) {
+    if (e.batch_key) bursts.set(e.batch_key, [...(bursts.get(e.batch_key) ?? []), e]);
+    else if (isInsider(e)) fresh.set(e.subscription_id, [...(fresh.get(e.subscription_id) ?? []), e]);
+  }
+  for (const [subscription, events] of fresh) {
+    if (events.length < BURST_MIN) continue;
+    const key = `burst:${subscription}:${events.map((e) => Number(e.id)).sort((a, b) => a - b)[0]}`;
+    // Recorded before the send, so that whatever happens next these alerts stay together.
+    await db.query(`update public.alert_events set batch_key = $2 where id = any($1::bigint[])`, [events.map((e) => e.id), key]);
+    for (const e of events) e.batch_key = key;
+    bursts.set(key, events);
+  }
+  for (const [key, events] of bursts) {
+    const first = events[0];
+    const feed = events
+      .map((e) => items.get(`${e.item_type}:${e.item_ref}`) as FeedItem)
+      .sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : a.publishedAt > b.publishedAt ? -1 : 0));
+    const reason = `You're getting this because you asked for alerts on ${feed[0].ticker ? `$${feed[0].ticker}` : feed[0].company}.`;
+    const message = toMessage(first.address, insiderBurstEmail({ items: feed, footer: footerFor(first, address, reason) }));
+    try {
+      const out = await provider.send(message, { idempotencyKey: "bs-burst-" + createHash("sha256").update(key).digest("hex").slice(0, 40) });
+      await markSent(db, events.map((e) => e.id), events.map(() => out.id));
+      result.sent += events.length;
+    } catch (err) {
+      const gaveUp = await markFailed(db, events, (err as Error).message);
+      result.failed += gaveUp;
+      result.retrying += events.length - gaveUp;
+    }
+  }
+
+  const groups = new Map<string, Claimed[]>();
+  for (const e of present) {
+    if (e.batch_key) continue; // went out above, in a combined email
+    const key = `${e.item_type}:${e.item_ref}`;
     groups.set(key, [...(groups.get(key) ?? []), e]);
   }
 

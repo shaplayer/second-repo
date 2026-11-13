@@ -508,6 +508,68 @@ async function main() {
       assert.equal(mail.sent.length, 0);
       process.env.COMPANY_POSTAL_ADDRESS = saved;
     });
+
+    await test("insider trades that arrive together go out as one email; one or two, or another day's, go out on their own", async () => {
+      await db.query(`update public.alert_events set status = 'suppressed' where status in ('queued', 'sending')`); // leftovers of earlier tests
+      const r = await signUp(db, { email: "ivy@example.org", cik: MSFT, picks: false, source: "x", consentText: consent, ...from });
+      await confirmSignup(db, r.confirmToken!, from);
+      const toIvy = (mail: ReturnType<typeof fakeEmail>) => mail.sent.filter((s) => s.msg.to[0] === "ivy@example.org");
+      const ivyEvents = `e.subscription_id in (select id from public.alert_subscriptions where address = 'ivy@example.org')`;
+      const age = () => db.query(`update public.alert_events e set created_at = now() - interval '6 minutes' where ${ivyEvents} and status = 'queued'`);
+
+      // Four insiders report within the same minute, and the company posts news as well.
+      const trades = ["Director bought 300 shares", "Chief Executive Officer sold 5,000 shares", "Director received 966 shares", "Chief Financial Officer received 1,023 shares"];
+      for (let i = 0; i < trades.length; i++) await addFiling(db, `0000789019-26-00020${i}`, MSFT, "4", { title: trades[i] });
+      await addFiling(db, "0000789019-26-000210", MSFT, "8-K", { items: ["5.02"], title: "Microsoft names a new finance chief" });
+      await matchNewItems(db);
+      await db.query(`update public.summary_jobs set status = 'done'`);
+
+      // The news goes at once. The insider trades wait a few minutes to see whether more follow.
+      const now = fakeEmail();
+      await sendQueuedAlerts(db, { provider: now.provider });
+      assert.deepEqual(toIvy(now).map((s) => s.msg.subject), ["$MSFT: Microsoft names a new finance chief"]);
+
+      // The wait is over, but the email service fails: all four are kept together for the retry.
+      await age();
+      const bad = fakeEmail({ failFor: () => true });
+      await sendQueuedAlerts(db, { provider: bad.provider });
+      const kept = (await db.query(`select distinct batch_key, status from public.alert_events e where ${ivyEvents} and item_ref like '0000789019-26-00020%'`)).rows;
+      assert.equal(kept.length, 1, "one batch, one status");
+      assert.ok(kept[0].batch_key && kept[0].status === "queued");
+
+      // A fifth report arrives before the retry. It is not slipped into the email that is being retried.
+      await addFiling(db, "0000789019-26-000220", MSFT, "4", { title: "Director received 120 shares" });
+      await matchNewItems(db);
+      await age();
+      await db.query(`update public.alert_events set next_attempt_at = now() where status = 'queued'`);
+      const good = fakeEmail();
+      await sendQueuedAlerts(db, { provider: good.provider });
+      const got = toIvy(good);
+      assert.deepEqual(got.map((s) => s.msg.subject).sort(), ["$MSFT: 4 insiders reported trades", "$MSFT: Director received 120 shares"]);
+      const burst = got.find((s) => s.msg.subject.includes("4 insiders"))!;
+      assert.ok(burst.key?.startsWith("bs-burst-"));
+      for (const t of trades) assert.ok(burst.msg.text.includes(t), t);
+      assert.match(burst.msg.text, /1 bought on the open market · 1 sold on the open market · 2 through awards or other transfers\./);
+      assert.match(burst.msg.text, /Not investment advice\./);
+      assert.match(burst.msg.text, /Unsubscribe: https:\/\/bigstocks\.test\/unsubscribe\?token=/);
+      assert.equal(burst.msg.headers!["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
+      const sent = (await db.query(`select distinct provider_message_id, status from public.alert_events e where ${ivyEvents} and item_ref like '0000789019-26-00020%'`)).rows;
+      assert.deepEqual(sent.map((x) => x.status), ["sent"], "all four are marked sent, by the one email");
+
+      // Two more, later: not "a lot", so each is its own email.
+      await addFiling(db, "0000789019-26-000230", MSFT, "4", { title: "Director bought 50 shares" });
+      await addFiling(db, "0000789019-26-000231", MSFT, "4", { title: "Director bought 75 shares" });
+      await matchNewItems(db);
+      const later = fakeEmail();
+      await sendQueuedAlerts(db, { provider: later.provider });
+      assert.equal(toIvy(later).length, 0, "still waiting");
+      await age();
+      await sendQueuedAlerts(db, { provider: later.provider });
+      assert.deepEqual(toIvy(later).map((s) => s.msg.subject).sort(), ["$MSFT: Director bought 50 shares", "$MSFT: Director bought 75 shares"]);
+      assert.ok(toIvy(later).every((s) => s.key?.startsWith("bs-alert-")));
+      await sendQueuedAlerts(db, { provider: later.provider });
+      assert.equal(toIvy(later).length, 2, "nothing is sent twice");
+    });
   }, { ifAvailable: process.argv.includes("--if-available") });
 
   if (!ran) console.log("(database part skipped)");
