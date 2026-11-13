@@ -1,27 +1,21 @@
 ---
 name: stock-charts
-description: How to build the Google Finance–style price chart (range tabs, green/red line, previous-close baseline, hover crosshair) and small sparklines. Use whenever creating or changing any price chart or sparkline.
+description: How price charts work on BigStocks (TradingView embed widgets only). Use whenever adding or changing a price chart, a sparkline, a quote, or anything that shows a price.
 ---
 
-# Stock charts
+# Charts on BigStocks
 
-Use **TradingView `lightweight-charts`** for the main chart (fast, finance-native time axis). Sparklines can be a tiny inline SVG `<polyline>`; no library needed.
+Every price and chart is a TradingView embed widget in the visitor's browser. We do not draw our own
+price charts, and our server never has a price to draw.
 
-## Main chart behavior (match Google Finance)
-- Range tabs above the chart: `1D 5D 1M 6M YTD 1Y 5Y MAX`. Default `1D`. Selected tab is underlined; switching refetches `/api/history`.
-- **Color**: green (`--up`) if last price ≥ the baseline, red (`--down`) otherwise. Baseline is previous close for `1D`, otherwise the first candle's close in the range.
-- Area series: line in the up/down color, fill fading from ~20 % opacity to 0.
-- For `1D`, draw a dashed horizontal line at previous close labeled "Previous close <value>".
-- Hover: vertical crosshair, no horizontal one. While hovering, the header price/change above the chart updates to the hovered point (change relative to baseline) and the date/time shows under it. On mouse leave, restore live values.
-- The change shown next to the range tabs reflects the selected range, e.g. `+12.40 (+5.6%) past month`.
-- Hide the grid, keep only a light right-side price scale, and no chart watermark.
-- Time axis in the **exchange's timezone** (e.g. America/New_York for US stocks), not the viewer's.
-- Resize with the container (`ResizeObserver`); dispose the chart on unmount.
-- Show a skeleton while loading and a short "Chart unavailable" message on error, never a blank box.
-
-## Colors
-Define in CSS and read them at runtime so dark mode works:
-```css
-:root { --up: #137333; --down: #a50e0e; }
-@media (prefers-color-scheme: dark) { :root { --up: #81c995; --down: #f28b82; } }
-```
+- Use `TradingViewWidget` from `components/tv/TradingViewWidget.tsx`. Kinds in use: `symbol-info`
+  (the quote line), `advanced-chart` (the stock page), `mini-symbol-overview` (cards and side columns).
+- The symbol comes from `companies.tv_symbol` (for example `NASDAQ:AAPL`). No symbol, no chart: show
+  the plain sentence the stock page uses.
+- Put `TradingViewCredit` under every chart and leave TradingView's own link inside the widget visible.
+- If the widget does not load, the component shows "Chart unavailable" and the rest of the page keeps
+  working. Keep that behaviour.
+- TradingView's script and frames are allowed in the Content Security Policy in `next.config.ts`.
+  A new widget from another host needs the owner's OK and a change there.
+- Company numbers from SEC filings (sales, cash) are not prices. Format them with `money()` in
+  `lib/time.ts`.

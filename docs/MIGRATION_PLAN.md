@@ -466,6 +466,37 @@ The migration files are in `supabase/migrations/` (`20261112…`). They follow t
 
 **Corrections found when the proposal was checked against the raw filings** (they apply to both rule sets and are built into the Phase 2 scorer): use four quarters in a row only; build the cash figure from balance-sheet lines so nothing is counted twice; skip a quarter whose figures do not add up to the year; treat a missing 12-month figure as unknown rather than as a profit; use the latest filed figure after a restatement; recognise SPACs by their trust account rather than by industry code alone; read the diluted share count when the basic one is missing; prefer figures from annual and quarterly reports over registration filings.
 
+### 6.2 Decisions made while building (Nov 12 to 13), for the owner to confirm or change
+
+These were not in the plan. Each was made to get to a working site sooner or to stay on the safe side; each can be changed.
+
+| Topic | What was built | Why |
+|---|---|---|
+| Sign-in | The site sends its own one-time sign-in links through the same email service as the alerts. Supabase Auth is no longer used; accounts are rows in `users`, found by email, so people from the old app keep theirs. | One sender and one set of templates, nothing extra to configure in Supabase (its built-in mailer is limited to a few emails an hour), and it could be tested end to end. Decision 14 (link only, no passwords, no Google) is unchanged. |
+| Confirming and signing in need one tap on the page | The emailed link opens a page with a button; the button does the confirming or signing in. | Mail scanners open every link in a message. Without the button they would confirm sign-ups nobody confirmed, and use up sign-in links. |
+| Confirming a sign-up also signs you in | The first confirmation creates the free account. | "Alert me" then works in one click, and My stocks shows what was followed. |
+| Live chat | Not in the new site. Its tables are kept. | It is not in the approved design (decision 8). |
+| Company list | Every ticker in the SEC's list, including OTC. | See §4.1. |
+| Followers who are not on the data site's general list | Copied as off the list. | See `docs/RUNBOOK.md` A5. The safe reading of an unclear record. |
+| Sponsor page numbers | 125,000 subscribers, 1,000,000 daily impressions, 5,000 daily clicks (the figures the old site already published). | The design's "16.7% open rate" and "45,000 text followers" were sample numbers. |
+| Legal pages | Published as the approved drafts, with their `[BRACKETS]` still to fill in. They still describe text alerts in places. | Decision 17: lawyer review before launch. |
+| Old alerts are dropped, not sent late | An alert that could not be sent within 6 hours is dropped. | After an outage, a burst of stale "news" is worse than none. |
+| Summaries of very long reports | Above about 400,000 characters, the opening and the results sections are sent to the model, and it is told so. | Cost and speed. Most filings are far shorter. |
+| Batch re-writing of old summaries (Phase 3 step 4) | Not built. | Not needed to go live: summaries are written on demand and for followed companies. |
+| Disk cache and conditional requests for the SEC client (Phase 2 step 1) | Not built. The 8-requests-a-second limit, the contact line on every request and the 10-minute stop on a refusal are. | Not needed at this volume. |
+
+### 6.3 Where each phase stands (Nov 13)
+
+| Phase | State |
+|---|---|
+| 0 Prepare | Built. |
+| 1 Schema and copy | Built and tested on local databases, including a hostile review whose findings are fixed. Not yet run on the real databases (the owner runs it: `docs/RUNBOOK.md` Part A). |
+| 2 Worker | Built and tested against saved samples and a stand-in for the SEC. **Not yet run against the live SEC**: that needs the owner's `SEC_USER_AGENT`. The health check uses the standard rules only until decision 9 is approved. |
+| 3 Summaries | Built and tested with a stand-in for Claude. Not yet run against the live API (needs the key on the server). |
+| 4 Alerts | Built and tested: sign-up, confirmation, matching, sending, daily summary, unsubscribe, bounces. Email only. Not yet sent through the real email service. |
+| 5 Site | Every approved page is built in the approved design and checked in a browser, on desktop and phone widths. TradingView charts could not be seen in the build environment (its network blocks them); the page shows "Chart unavailable" there and the rest works. |
+| 6 Go live | Tooling and the runbook (Part B) are written. **The site is not on the Droplet yet**: that needs access to the server, the keys and the DNS, which only the owner has. |
+
 ### Open
 - **Track record vs "win big" (decision 2, reopened; owner: "maybe").** Either (a) bring back an honest public record of every free alert, wins and losses, with the price staff record at send time and the day's close entered the same way (sponsored alerts shown separately and never counted as wins), or (b) keep it removed and drop "win big" style claims from the site, emails and texts, and talk about speed and news instead. Needed before Phase 5 (homepage copy) and before any marketing.
 

@@ -1,13 +1,27 @@
 # BigStocks runbook: the steps the owner runs
 
 This is the list of things that have to be done on the real servers, in order. Everything here is run
-by you (or someone you trust with the keys) on the DigitalOcean Droplet, in the project folder. Nothing
-in this repository connects to the real databases on its own.
+by you (or someone you trust with the keys) on the DigitalOcean Droplet. Nothing in this repository
+connects to the real databases on its own.
 
 Every command that changes something has a "dry run" that shows what it would do and changes nothing.
-Run the dry run first, read the output, then run it for real.
+Run the dry run first, read the output, then run it for real. Nothing is changed without `--yes`.
 
 The plan these steps belong to is `docs/MIGRATION_PLAN.md`.
+
+**Use a new folder.** The data site that is live today runs from its own folder on the Droplet. Leave
+that folder alone until the switch-over. Put the new code beside it:
+
+```bash
+git clone --branch claude/modest-mayer-5zd6rx https://github.com/shaplayer/second-repo.git ~/bigstocks-new
+```
+
+```bash
+cd ~/bigstocks-new
+```
+
+Every command below is run in `~/bigstocks-new`. (Once the branch is merged, replace the branch name
+with `main`.)
 
 ---
 
@@ -136,7 +150,9 @@ site. It never switches an opted-out address back on.
 
 What it deliberately does not copy:
 
-- People who only followed companies and were never on the general list are not added to the general list.
+- People who follow companies on the data site but are not on its general list are copied as *off* the general list.
+  The old site cannot tell "never joined" from "joined, then unsubscribed", so nobody is put on the pick list on a
+  guess. This also switches off a pick-list sign-up on the old app for the same address; the report says how many people this is.
 - Phone numbers that never agreed to texts.
 - Follows of tickers that are not in the SEC's company list (the report names them).
 - The old sample and test news items.
@@ -177,4 +193,165 @@ If the switch-over has to be repeated before the new site has opened to visitors
 
 ## Part B. Going live on the Droplet (plan Phase 6)
 
-Written when Phase 6 is built. Until then the old sites stay exactly as they are.
+The new site runs beside the old one (its own folder, its own port 3001) until you switch Nginx over.
+Until step B6 visitors see only the old sites.
+
+### B1. Fill in `.env`
+
+```bash
+cp .env.example .env
+```
+
+```bash
+nano .env
+```
+
+Each line is explained in the file. What you need to have ready:
+
+| Line | Where it comes from |
+|---|---|
+| `DATABASE_URL` | Supabase, as in A1 |
+| `NEXT_PUBLIC_SITE_URL` | Your public address, for example `https://bigstocks.com` |
+| `APP_SECRET` | Make one: `openssl rand -base64 48` |
+| `SEC_USER_AGENT` | Your company name and a monitored email, as in A1 |
+| `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, `EMAIL_FROM` | resend.com. The sending domain in `EMAIL_FROM` must be verified there (it gives you DNS records to add) |
+| `RESEND_WEBHOOK_SECRET` | resend.com, Webhooks: add `https://<your site>/api/webhooks/resend` for the events "bounced" and "complained", then copy its signing secret |
+| `COMPANY_POSTAL_ADDRESS` | Your business postal address. Alert emails are held back until it is set |
+| `ANTHROPIC_API_KEY` | console.anthropic.com. Without it the site works but writes no summaries |
+| `INQUIRY_NOTIFY_TO` | Where sponsor inquiries should be emailed |
+
+Keep `ALERTS_SENDING=off` in `.env` for now (add that line). Protect the file:
+
+```bash
+chmod 600 .env
+```
+
+### B2. Publish the new code (beside the old site)
+
+```bash
+bash scripts/deploy.sh
+```
+
+It installs the packages, runs the checks, applies any new database changes, builds, starts the site
+and the worker under PM2, and asks the site whether it is healthy. You will run this same command
+every time the code changes.
+
+Look at it without changing anything for visitors. From your own computer:
+
+```bash
+ssh -L 3001:127.0.0.1:3001 <you>@<droplet address>
+```
+
+then open `http://localhost:3001` in your browser. Check the worker:
+
+```bash
+pm2 logs bigstocks-worker --lines 30
+```
+
+You should see `[worker] started. Sending email: OFF.` and no repeating errors. Within a minute the
+live feed on the homepage fills with filings.
+
+### B3. Give yourself staff access
+
+```bash
+npm run admin:grant -- you@yourcompany.com
+```
+
+Sign in on the site with that address (an emailed link), then open `/admin`. That page shows whether
+the worker is healthy, lets you post picks, and lists sponsor inquiries.
+
+### B4. Let it run beside the old site for two days
+
+Leave `ALERTS_SENDING=off`. Compare what the new feed shows with the old sites. On `/admin` every
+worker line should say "Working". Run the rehearsal copy (A5) during this time.
+
+### B5. Fill in the legal pages
+
+`/disclaimer`, `/privacy`, `/terms` and `/sms-terms` are draft templates with `[BRACKETS]` to fill
+in. Have your lawyer review them before the switch-over. They are in `app/disclaimer/page.tsx`,
+`app/privacy/page.tsx`, `app/terms/page.tsx` and `app/sms-terms/page.tsx`.
+
+### B6. The switch-over
+
+Pick a quiet time (a weekend morning). A day ahead, lower the DNS time-to-live for your domain to 5
+minutes at your DNS provider.
+
+1. **Stop the old sites taking sign-ups.** On the Droplet, stop the old data site and its poller
+   (the names it runs under today):
+
+```bash
+pm2 stop bigstocks-web bigstocks-ingest
+```
+
+   In Vercel, pause the old app (Project, Settings, "Pause"), or leave it until step 5 if nobody is
+   using it this hour.
+
+2. **Back up and copy one last time** (A2, then A6):
+
+```bash
+npm run backup
+```
+
+```bash
+npm run backfill -- --cutover --dry-run
+```
+
+```bash
+npm run backfill -- --cutover --yes
+```
+
+3. **Point the web server at the new site:**
+
+```bash
+sudo cp deploy/nginx-bigstocks.conf /etc/nginx/sites-available/bigstocks
+```
+
+```bash
+sudo ln -sf /etc/nginx/sites-available/bigstocks /etc/nginx/sites-enabled/bigstocks
+```
+
+   Remove the old site's Nginx file from `/etc/nginx/sites-enabled/` (keep a copy), then:
+
+```bash
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+```bash
+sudo certbot --nginx -d bigstocks.com -d www.bigstocks.com -d data.bigstocks.com
+```
+
+4. **Point the names at the Droplet.** At your DNS provider, `bigstocks.com`, `www` and `data` all
+   point to the Droplet's address. `data.bigstocks.com` then forwards to the main address, so links
+   in emails already sent keep working.
+
+5. **Forward the old Vercel address.** In the old Vercel project, add a redirect from every path to
+   the same path on `https://bigstocks.com` (links in the old app's emails then keep working), and
+   keep it for at least a month.
+
+6. **Turn sending on.** In `.env` change `ALERTS_SENDING=off` to `ALERTS_SENDING=on`, then:
+
+```bash
+pm2 restart bigstocks-worker --update-env
+```
+
+7. **Check.** Open the site, sign up with an address of your own, confirm, follow a stock, and wait
+   for its next filing. On `/admin`, "Emails sent, 24 h" starts counting.
+
+```bash
+pm2 save
+```
+
+### B7. If you need to go back
+
+Before step 6 nothing has been sent, so going back is: put the old Nginx file back, reload Nginx,
+`pm2 start bigstocks-web bigstocks-ingest`. The old databases were only read, never changed.
+After step 6, people have signed up and changed settings on the new site; going back would lose
+those, so fix forward instead and ask for help.
+
+### B8. Afterwards
+
+- Two weeks after the switch-over, with no problems: take a final backup, then the retired tables
+  can be dropped (ask first; it is a one-line migration per table).
+- Remove `DATASITE_DATABASE_URL` from `.env`.
+- Text alerts stay off until you decide to add them (plan decision 15).
+- Updating the site later is always: `cd ~/bigstocks-new && bash scripts/deploy.sh`.

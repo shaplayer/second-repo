@@ -27,4 +27,20 @@ design is the canvas named in decision 8. `docs/RUNBOOK.md` has the steps the ow
 - `legacy/vercel-app/` is a frozen reference copy of the old app. Do not import from it or edit it.
 - Never commit `.env` or paste keys into code, docs or chat.
 
+- Sign-in is by emailed one-time link (`lib/auth`). Only hashes of link codes and session codes are stored. Anything that
+  changes data must be a POST checked with `sameOrigin()` (`lib/web/request.ts`); confirming, signing in and unsubscribing
+  never happen on a GET, because mail scanners open every link.
+- Pages and API routes read the database only. They never call the SEC, Claude or any other outside service: the worker
+  (`scripts/worker.ts`) does that.
+- The health check rules live in `lib/health`. The growth-company rule set stays off (`HEALTH_GROWTH_RULES`) until the
+  owner approves it (plan decision 9).
+
+## Where things are
+- `app/`, `components/`: the site, in the approved design (tokens and component classes in `app/globals.css`).
+- `lib/plain.ts`: the one place for plain-English names of filings. `lib/data/`: every query the pages use.
+- `lib/alerts/`: sign-up, confirmation, unsubscribe, matching and sending. `lib/summaries/`: the Claude call and its queue.
+- `lib/sec/`, `lib/ingest/`: the SEC client, parsers and the jobs the worker runs.
+- `lib/backfill/`, `scripts/backfill.ts`: the one-time copy from the two old databases.
+- `npm run dev:seed` builds a local sample database to look at the pages with.
+
 Checks before finishing a change: `npm run lint`, `npm test` and `npm run build`.

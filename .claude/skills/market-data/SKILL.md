@@ -1,49 +1,36 @@
 ---
 name: market-data
-description: How this project fetches and serves stock market data (quotes, price history, company profiles, news, ticker search). Use whenever adding or changing an API route, data provider, cache, or type that touches market data.
+description: Where BigStocks data comes from and how it reaches a page (SEC filings, press releases, company facts, summaries, prices). Use whenever adding or changing an API route, a worker job, a data source, or anything that touches prices.
 ---
 
-# Market data
+# Data on BigStocks
 
-## Rules
-- **Never call a market-data provider from the browser.** API keys live in `.env.local` (never committed) and are read only in server code (API routes / server components). The frontend calls our own `/api/*` routes.
-- Put every provider call behind one module, `lib/market/`, so swapping providers touches one place.
-- Return **our own normalized types**, never raw provider JSON, to the UI.
+## The rule about prices
+Our server never fetches, stores or shows a price. Prices and charts are TradingView embed widgets
+loaded by the visitor's browser (`components/tv/TradingViewWidget.tsx`). Do not add a price provider,
+a quotes route, a price column, or a "price move" to any feed. If a task seems to need a price on our
+side, stop and ask the owner.
 
-## Normalized types
-```ts
-export type Quote = {
-  symbol: string; name: string; exchange: string; currency: string;
-  price: number; change: number; changePercent: number;
-  previousClose: number; open: number; dayHigh: number; dayLow: number;
-  volume: number; marketCap?: number; peRatio?: number; dividendYield?: number;
-  week52High?: number; week52Low?: number;
-  marketState: "PRE" | "REGULAR" | "POST" | "CLOSED";
-  updatedAt: string; // ISO
-};
-export type Candle = { t: number; o: number; h: number; l: number; c: number; v: number }; // t = unix ms
-export type Range = "1D" | "5D" | "1M" | "6M" | "YTD" | "1Y" | "5Y" | "MAX";
-export type NewsItem = { title: string; url: string; source: string; publishedAt: string; imageUrl?: string };
-export type SearchResult = { symbol: string; name: string; exchange: string; type: string };
-```
+## Where data comes from
+- **SEC EDGAR** (free, public domain): filings, press releases attached to filings, company records,
+  company financial facts. One client for all of it: `lib/sec/client.ts`. Every request carries
+  `SEC_USER_AGENT` (no default) and all requests together stay under 8 a second. A refusal from the
+  SEC pauses every request for 10 minutes. Never work around either.
+- **Newswires and other sources**: one row per source in `news_sources`, with `enabled`,
+  `can_store_body` and `can_summarize`. A source is switched on only once its terms or licence allow
+  our use. Feed addresses are in `lib/ingest/press.ts`.
+- **Claude** writes summaries (`lib/summaries/claude.ts`), only for items someone opens or for
+  companies with subscribers.
 
-## API routes
-| Route | Returns |
-|---|---|
-| `GET /api/quote?symbols=AAPL,MSFT` | `Quote[]` |
-| `GET /api/history?symbol=AAPL&range=1M` | `Candle[]` |
-| `GET /api/search?q=app` | `SearchResult[]` (max 10) |
-| `GET /api/news?symbol=AAPL` | `NewsItem[]` |
+## How it reaches a page
+The worker (`scripts/worker.ts`) is the only thing that calls outside services. It writes to
+Postgres. Pages and API routes read Postgres only, through `lib/data/*` (`feed.ts`, `companies.ts`,
+`picks.ts`, `account.ts`). A page view never triggers a request to the SEC or to Claude: it can only
+put a job on a list (`markViewed`, `requestSummary`) for the worker to do.
 
-Range → interval: 1D→5min, 5D→30min, 1M/6M/YTD→1day, 1Y→1day, 5Y→1week, MAX→1month.
-
-## Caching and rate limits
-Free provider tiers are tightly rate limited, so cache server-side:
-- Quotes: 15–60 s. History intraday: 1 min; daily+: 1 h. Profiles: 24 h. News: 5 min. Search: 24 h.
-- On provider error or 429, serve the last cached value if one exists and include `stale: true`.
-- Validate `symbol` (`/^[A-Z0-9.\-^=]{1,15}$/` after uppercasing) before calling a provider.
-
-## Providers
-Pick one via `MARKET_PROVIDER` env var. Good options: Finnhub, Alpha Vantage, Twelve Data, Financial Modeling Prep, Polygon. Check the provider's current docs for endpoints and limits rather than guessing. Free data is often delayed ~15 min; show "Delayed" in the UI when it is.
-
-For local dev without a key, `MARKET_PROVIDER=mock` returns deterministic fake data from `lib/market/mock.ts`.
+## Adding a kind of filing or a source
+- A new kind of filing: add it to `FORMS` in `lib/plain.ts` with a plain-English name, a one-line
+  meaning and a category. Never show a form code on its own.
+- A new source: a row in `news_sources` (a new migration file), its feed in `lib/ingest/press.ts`,
+  and a note in `terms_note` of what was agreed.
+- Schema changes are new files in `supabase/migrations/`. Test on a local throwaway Postgres only.

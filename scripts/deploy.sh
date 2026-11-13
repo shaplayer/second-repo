@@ -29,7 +29,7 @@ echo "== 5/6 Building"
 npm run build
 
 echo "== 6/6 Restarting"
-if pm2 describe bigstocks-web >/dev/null 2>&1; then
+if pm2 describe bigstocks-site >/dev/null 2>&1; then
   pm2 reload ecosystem.config.cjs --update-env
 else
   pm2 start ecosystem.config.cjs
@@ -38,11 +38,11 @@ pm2 save
 
 sleep 5
 echo
-if curl -fsS http://127.0.0.1:3000/api/health; then
+if curl -fsS http://127.0.0.1:3001/api/health; then
   echo
   echo "Done. The site answered."
 else
   echo
-  echo "The site did not answer its health check. Look at:  pm2 logs bigstocks-web --lines 50"
+  echo "The site did not answer its health check. Look at:  pm2 logs bigstocks-site --lines 50"
   exit 1
 fi

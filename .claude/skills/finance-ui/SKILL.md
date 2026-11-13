@@ -1,39 +1,42 @@
 ---
 name: finance-ui
-description: Layout, components, and number formatting for the BigStocks stock website (home page, ticker page, search, watchlist). Use whenever building or changing pages or UI components, or formatting prices, percentages, or large numbers.
+description: The approved BigStocks design and how pages are built (colours, type, cards, buttons, feed rows, sign-up forms, wording rules). Use whenever building or changing a page or a component.
 ---
 
-# Finance UI
+# Building pages on BigStocks
 
-## Stack
-Next.js (App Router) + TypeScript + Tailwind, unless the repo already uses something else. Data comes only from our `/api/*` routes (see the `market-data` skill); charts follow the `stock-charts` skill.
+The approved design is the canvas named in decision 8 of `docs/MIGRATION_PLAN.md`. Port from it; do
+not invent a new look.
 
-## Pages
-- **Home `/`**: search bar; "Market summary" row (S&P 500, Dow, Nasdaq, plus a few others) each with value, change, sparkline; "You may be interested in" list; market news; watchlist if one exists.
-- **Ticker `/quote/[symbol]`** (e.g. `/quote/AAPL:NASDAQ` or `/quote/AAPL`):
-  1. Breadcrumb (`Home > AAPL`), company name, big price, change and % change colored with an up/down arrow, "Closed: Oct 13, 4:00 PM EDT · USD · NASDAQ · Disclaimer". After-hours price on a second line when available.
-  2. Price chart with range tabs.
-  3. Right column (stacks below on mobile) **key stats** table: Previous close, Day range, Year range, Market cap, Avg volume, P/E ratio, Dividend yield, Primary exchange.
-  4. "About" company blurb, then news list (source · relative time · title, thumbnail on right).
-  5. "Compare to" chips for related tickers.
-- **Search**: debounced (250 ms) autocomplete calling `/api/search`; arrow keys + Enter select; `/` focuses the search bar.
-- **Watchlist**: stored in `localStorage` until there are user accounts; add/remove with a "+ Follow" button on the ticker page.
+## The look
+- Light only. Manrope. White with a soft mint glow at the top (`.page`). Ink `text-ink`, secondary
+  `text-ink-2`, quiet `text-muted`. One brand green (`bg-brand`); the bright green (`btn-bright`) only
+  on the dark card.
+- Tokens and component classes are in `app/globals.css`: `.wrap`, `.card`, `.card-raised`,
+  `.card-mint`, `.card-dark`, `.btn` with `.btn-dark` / `.btn-brand` / `.btn-bright` / `.btn-soft` /
+  `.btn-outline` / `.btn-lg`, `.chip`, `.eyebrow`, `.fine`, `.field`. Use them before writing new CSS.
+- Rounded cards with a hairline ring, pill buttons at least 44px tall, one centred column.
+- Every page works at 390px wide with no sideways scrolling.
 
-## Formatting (put these in `lib/format.ts` and always use them)
-- Prices: `Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2 })`; use up to 4 decimals for prices < 1.
-- Change: always show a sign: `+1.23`, `-0.45`; percent as `+1.23%`.
-- Large numbers: `1.23T`, `456.70B`, `12.30M`, `987.65K` (market cap, volume).
-- Missing values: show `-`, never `NaN`, `undefined`, or `0`.
-- Timestamps: exchange timezone with zone abbreviation (`4:00 PM EDT`); news uses relative time (`3 hours ago`).
+## Building blocks
+- `Shell` (header, footer, glow) wraps every page.
+- `FeedList` is the live list: filters, new-post bar, summary opening in place, "Alert me".
+  `FeedRows` is the plain list. `ItemPage` is the page for one filing or release.
+- `SignupForm` / `SignupCard` for every sign-up. The consent sentence comes from
+  `components/signup/consent.ts` and is stored word for word with the sign-up: change it there only.
+- `HealthCard`, `HealthPill`, `TypeBadge`, `Initials`, `TimeAgo`, `Countdown`.
+- Times are New York time (`lib/time.ts`).
 
-## Visual style (BigStocks brand: dark, premium, "view from orbit")
-- Dark only: near-black `--color-bg #07090a`, cards `--color-surface #0e1113` with 1px `--color-line` borders and 20px radius. White text, muted gray secondary. One brand green `--color-brand #12e27a` for CTAs, highlights and up moves; `--color-down #ff5a5f` for down moves/losses. Tokens live in `app/globals.css` (`@theme`), so use the Tailwind classes (`bg-surface`, `text-muted`, `text-brand`…), not raw hex.
-- Wide and zoomed-out: `.container-wide` (max 1360px), generous section spacing (96–128px), restrained type (H1 ≤ 56px, body 15–17px). Never billboard-huge.
-- Inter Variable (self-hosted via `@fontsource-variable/inter`), `tabular-nums` (`.num`) on every number. Tickers in mono.
-- Subtle motion only (marquee, fade-up `Reveal`, pulse dots); always respect `prefers-reduced-motion`.
-- Up = green, down = red, unchanged = gray. Never rely on color alone: also show the sign or arrow.
-- Responsive: one column under 768px, no horizontal page scroll.
+## Wording
+- Plain English for people who have never read a filing. "Quarterly report", never "10-Q" alone.
+  Names come from `lib/plain.ts`.
+- Never "Buy" or "Sell". The health check says Strong, Mixed or Weak and always carries "not
+  investment advice".
+- No prices or price moves in any list. No track-record claims ("winning picks", returns).
+- An AI summary is always labelled "AI-generated. Can contain mistakes." with a link to the original.
+- A sponsored pick always shows who paid, how much and in what form.
+- Text alerts are off (`smsEnabled()`): show no mobile field and promise no texts.
 
-## Required
-- Footer disclaimer: data may be delayed and is not investment advice; credit the data provider.
-- Loading skeletons for every async section; a friendly "Couldn't find that symbol" page for bad tickers.
+## States
+Every part of a page that loads data has a plain sentence for "nothing yet", "still loading" and
+"could not load", and the rest of the page keeps working when one part fails.

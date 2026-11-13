@@ -3,9 +3,9 @@
 module.exports = {
   apps: [
     {
-      name: "bigstocks-web",
+      name: "bigstocks-site",
       script: "node_modules/next/dist/bin/next",
-      args: "start -p 3000 -H 127.0.0.1", // only Nginx talks to it
+      args: "start -p 3001 -H 127.0.0.1", // only Nginx talks to it. Port 3001, so the old site can keep 3000 until the switch-over
       env: { NODE_ENV: "production" },
       max_memory_restart: "700M",
     },
