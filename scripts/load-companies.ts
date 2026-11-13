@@ -27,14 +27,14 @@ async function download(): Promise<unknown> {
 }
 
 async function main() {
-  const { flags, values } = parseArgs(process.argv.slice(2));
+  const { flags, values } = parseArgs(process.argv.slice(2), { flags: ["dry-run", "yes", "prune"], values: ["file", "exchanges"] });
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Set DATABASE_URL (in .env or the environment)");
   const target = describeTarget(url);
   const dryRun = flags.has("dry-run");
   console.log(`Database: ${target.label}${dryRun ? " (dry run: nothing will change)" : ""}`);
-  if (!dryRun && !target.isLocal && !flags.has("yes")) {
-    throw new Error("This is not a local database. Run again with --yes to save.");
+  if (!dryRun && !flags.has("yes")) {
+    throw new Error("This would change the database. Run again with --yes to save (or --dry-run to look first).");
   }
 
   const file = values.get("file");

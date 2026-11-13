@@ -21,7 +21,7 @@ import { finish, test } from "./testing";
 
 const cand = (over: Partial<Candidate>): Candidate => ({
   channel: "email", address: "a@example.org", cik: 320193, categories: ["earnings"], cadence: "instant", status: "active",
-  confirmToken: null, unsubscribeToken: "t".repeat(32), legacyToken: null, consentText: null, consentAt: null, consentIp: null,
+  confirmToken: null, unsubscribeToken: "t".repeat(32), legacyToken: null, oldTokens: ["t".repeat(32)], consentText: null, consentAt: null, consentIp: null,
   consentUserAgent: null, source: "x", confirmedAt: null, unsubscribedAt: null, createdAt: "2026-06-01T00:00:00.000000Z",
   legacy: { source: "x" }, ...over,
 });
@@ -132,8 +132,15 @@ async function main() {
     assert.equal(mergeCandidates(outEarlier, active).status, "active");
     assert.equal(mergeCandidates(active, outUnknown).status, "unsubscribed", "an opt-out with no date always wins");
     assert.equal(mergeCandidates(outUnknown, outLater).unsubscribedAt, "2026-05-01T00:00:00.000000Z", "keep the opt-out we know more about");
-    const lost = mergeCandidates(active, outLater);
-    assert.deepEqual((lost.legacy as { other_tokens: string[] }).other_tokens, ["t".repeat(32)], "the losing record's token is kept");
+    const lost = mergeCandidates(active, { ...outLater, oldTokens: ["u".repeat(32)] });
+    assert.deepEqual(lost.oldTokens.sort(), ["t".repeat(32), "u".repeat(32)], "both records' link codes are kept");
+    const kept = (lost.legacy as { merged: { status: string; tokens: string[]; consent: object }[] }).merged;
+    assert.deepEqual([kept.length, kept[0].status, kept[0].tokens], [1, "active", ["t".repeat(32)]], "the losing record is kept whole");
+    // A third record for the same subscription: nothing from the first two is lost.
+    const third = mergeCandidates(lost, cand({ status: "pending", oldTokens: ["v".repeat(32)], legacy: { source: "z" } }));
+    assert.deepEqual(third.oldTokens.sort(), ["t".repeat(32), "u".repeat(32), "v".repeat(32)]);
+    assert.equal((third.legacy as { merged: unknown[] }).merged.length, 2);
+    assert.deepEqual((third.legacy as { sources: string[] }).sources.sort(), ["x", "z"]);
   });
 
   await test("merging two old records: confirmed beats unconfirmed, older is kept, alert kinds are combined", () => {
@@ -141,7 +148,12 @@ async function main() {
     const active = cand({ status: "active", categories: ["earnings"], createdAt: "2026-03-01T00:00:00.000000Z" });
     const merged = mergeCandidates(pending, active);
     assert.equal(merged.status, "active");
-    assert.deepEqual(merged.categories, ["earnings", "insider"]);
+    assert.deepEqual(merged.categories, ["earnings"], "an unanswered request never widens a confirmed subscription");
+    assert.deepEqual(mergeCandidates(active, cand({ status: "active", categories: ["insider"] })).categories, ["earnings", "insider"]);
+    // The consent record: the winner's own; when it has none, the other record's.
+    const withProof = cand({ status: "pending", consentText: "I agree", consentIp: "203.0.113.7", createdAt: "2026-05-01T00:00:00.000000Z" });
+    const bare = cand({ status: "active", createdAt: "2026-01-01T00:00:00.000000Z" });
+    assert.deepEqual([mergeCandidates(bare, withProof).consentText, mergeCandidates(bare, withProof).consentIp], ["I agree", "203.0.113.7"]);
     const older = cand({ createdAt: "2026-01-01T00:00:00.000000Z", source: "older" });
     const newer = cand({ createdAt: "2026-02-01T00:00:00.000000Z", source: "newer" });
     assert.equal(mergeCandidates(newer, older).source, "older");
@@ -155,13 +167,26 @@ async function main() {
     assert.equal(remote.isLocal, false);
     assert.ok(!remote.label.includes("hunter2"));
     assert.throws(() => describeTarget("not a url"), /not a valid URL/);
+    // A string that could go to two places is local only if both are.
+    assert.equal(describeTarget("postgresql://u@localhost/db?host=/var/run/postgresql&host=db.prod.example.com", {} as NodeJS.ProcessEnv).isLocal, false);
+    assert.equal(describeTarget("postgresql://u@db.prod.example.com/db?host=/var/run/postgresql", {} as NodeJS.ProcessEnv).isLocal, false);
+    assert.equal(describeTarget("postgresql:///db", { PGHOST: "db.prod.example.com" } as unknown as NodeJS.ProcessEnv).isLocal, false);
+    assert.equal(describeTarget("postgresql:///db", {} as NodeJS.ProcessEnv).isLocal, true);
+    assert.equal(describeTarget("postgresql://u@[::1]/db", {} as NodeJS.ProcessEnv).isLocal, true);
   });
 
   await test("command-line arguments", () => {
-    const a = parseArgs(["--dry-run", "--only", "users,news", "--report=out.json", "--yes"]);
+    const spec = { flags: ["dry-run", "yes"], values: ["only", "report"] };
+    const a = parseArgs(["--dry-run", "--only", "users,news", "--report=out.json", "--yes"], spec);
     assert.deepEqual([...a.flags].sort(), ["dry-run", "yes"]);
     assert.equal(a.values.get("only"), "users,news");
     assert.equal(a.values.get("report"), "out.json");
+    // A slip must never turn a rehearsal into a real run.
+    assert.throws(() => parseArgs(["--dryrun", "--yes"], spec), /Unknown option --dryrun/);
+    assert.throws(() => parseArgs(["--dry-run=true", "--yes"], spec), /takes no value/);
+    assert.throws(() => parseArgs(["--only"], spec), /needs a value/);
+    assert.deepEqual(parseArgs(["--dry-run", "out.json", "--yes"], spec).rest, ["out.json"]);
+    assert.ok(parseArgs(["--dry-run", "out.json", "--yes"], spec).flags.has("dry-run"));
   });
 
   await test("migration files are named and ordered correctly, and the old ones are untouched", () => {

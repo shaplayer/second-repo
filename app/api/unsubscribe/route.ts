@@ -14,7 +14,8 @@ const SCOPES: UnsubscribeScope[] = ["this", "stocks", "picks", "all"];
  */
 export async function POST(req: Request) {
   const url = new URL(req.url);
-  let token = url.searchParams.get("token") ?? "";
+  // Emails from the old data site carry the code as "t"; the old app and this site use "token".
+  let token = url.searchParams.get("token") ?? url.searchParams.get("t") ?? "";
   let scope = url.searchParams.get("scope") ?? "this";
   let undo = "";
   const type = req.headers.get("content-type") ?? "";

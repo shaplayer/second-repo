@@ -32,7 +32,7 @@ function steps(list: string | undefined): StepName[] | undefined {
 }
 
 async function main() {
-  const { flags, values } = parseArgs(process.argv.slice(2));
+  const { flags, values } = parseArgs(process.argv.slice(2), { flags: ["dry-run", "yes", "cutover", "after-cutover"], values: ["only", "skip", "report"] });
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Set DATABASE_URL (the one database)");
   const siteUrl = process.env.DATASITE_DATABASE_URL || null;
@@ -41,8 +41,8 @@ async function main() {
   console.log(`Copying into: ${target.label}${dryRun ? " (dry run: everything is undone at the end)" : ""}`);
   console.log(siteUrl ? `Data site:    ${describeTarget(siteUrl).label} (read only)` : "Data site:    not given (only the old app's tables are copied)");
   if (siteUrl && siteUrl === url) throw new Error("DATASITE_DATABASE_URL and DATABASE_URL point at the same database");
-  if (!dryRun && !target.isLocal && !flags.has("yes")) {
-    throw new Error("This is not a local database. Try --dry-run first, take a backup (docs/RUNBOOK.md), then run again with --yes.");
+  if (!dryRun && !flags.has("yes")) {
+    throw new Error("This would change the database. Try --dry-run first, take a backup (docs/RUNBOOK.md), then run again with --yes.");
   }
 
   const db = new Client({ connectionString: url });

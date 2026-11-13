@@ -6,7 +6,7 @@
  *   npm run db:migrate -- --baseline 20261014004200 --yes
  *       # first run on a database where the older files were applied by hand: mark those as done
  *
- * On anything that is not a local database it refuses to run without --yes.
+ * It refuses to change anything without --yes.
  */
 import "./load-env";
 import { Client } from "pg";
@@ -14,14 +14,14 @@ import { migrate } from "../lib/db/migrate";
 import { describeTarget, parseArgs } from "../lib/db/target";
 
 async function main() {
-  const { flags, values } = parseArgs(process.argv.slice(2));
+  const { flags, values } = parseArgs(process.argv.slice(2), { flags: ["dry-run", "yes"], values: ["baseline"] });
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Set DATABASE_URL (in .env or the environment)");
   const target = describeTarget(url);
   const dryRun = flags.has("dry-run");
   console.log(`Database: ${target.label}${dryRun ? " (dry run: nothing will change)" : ""}`);
-  if (!dryRun && !target.isLocal && !flags.has("yes")) {
-    throw new Error("This is not a local database. Take a backup first (docs/RUNBOOK.md), then run again with --yes.");
+  if (!dryRun && !flags.has("yes")) {
+    throw new Error("This would change the database. Look at --dry-run first, take a backup (docs/RUNBOOK.md), then run again with --yes.");
   }
   const client = new Client({ connectionString: url });
   await client.connect();

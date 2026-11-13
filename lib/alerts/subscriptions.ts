@@ -207,7 +207,7 @@ export async function peekConfirmation(db: Db, token: string): Promise<{ email: 
   const { rows } = await db.query<SubRow & { confirm_batch: string | null; via: string }>(
     `select ${SUB_COLS}, s.confirm_batch, case when s.confirm_token = $1 then 'confirm' else 'legacy' end as via
        from public.alert_subscriptions s left join public.companies c on c.cik = s.cik
-      where s.channel = 'email' and (s.confirm_token = $1 or s.legacy_token = $1)
+      where s.channel = 'email' and (s.confirm_token = $1 or s.legacy_token = $1 or s.legacy_tokens @> array[$1::text])
       order by (s.confirm_token = $1) desc, s.id`,
     [token],
   );
@@ -247,7 +247,7 @@ export async function confirmSignup(db: Db, token: string, click: { ip: string |
     const { rows } = await c.query<SubRow & { confirm_batch: string | null; via: string }>(
       `select ${SUB_COLS}, s.confirm_batch, case when s.confirm_token = $1 then 'confirm' else 'legacy' end as via
          from public.alert_subscriptions s left join public.companies c on c.cik = s.cik
-        where s.channel = 'email' and (s.confirm_token = $1 or s.legacy_token = $1)
+        where s.channel = 'email' and (s.confirm_token = $1 or s.legacy_token = $1 or s.legacy_tokens @> array[$1::text])
         order by (s.confirm_token = $1) desc, s.id
           for update of s`,
       [token],
@@ -286,12 +286,13 @@ async function rowsForToken(db: Db, token: string, lock: boolean): Promise<{ ema
   const { rows } = await db.query<SubRow & { direct: boolean }>(
     `select ${SUB_COLS}, (s.unsubscribe_token = $1) as direct
        from public.alert_subscriptions s left join public.companies c on c.cik = s.cik
-      where s.channel = 'email' and (s.unsubscribe_token = $1 or s.legacy_token = $1 or s.confirm_token = $1)
+      where s.channel = 'email' and (s.unsubscribe_token = $1 or s.legacy_token = $1 or s.confirm_token = $1 or s.legacy_tokens @> array[$1::text])
       order by (s.unsubscribe_token = $1) desc, s.id ${lock ? "for update of s" : ""}`,
     [token],
   );
   if (!rows.length) return null;
-  // The row's own unsubscribe code names exactly that row; an old per-person code names all of that person's rows.
+  // The row's own unsubscribe code names exactly that row; a code from an old site's email names every row it was
+  // copied into (the old app used one code per person, labelled "unsubscribe from all alerts").
   const direct = rows.filter((r) => r.direct);
   return { email: rows[0].address, matched: direct.length ? direct : rows };
 }

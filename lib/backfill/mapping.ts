@@ -77,6 +77,11 @@ export type Candidate = {
   confirmToken: string | null;
   unsubscribeToken: string;
   legacyToken: string | null;
+  /**
+   * Every code that appears in a link an old site already emailed for this subscription. After a merge
+   * it holds the codes of all the old records, so each of those links still finds the row.
+   */
+  oldTokens: string[];
   consentText: string | null;
   /** Timestamps are text exactly as the old database holds them (microseconds kept). */
   consentAt: string | null;
@@ -86,12 +91,31 @@ export type Candidate = {
   confirmedAt: string | null;
   unsubscribedAt: string | null;
   createdAt: string;
+  /** Which old table and row this came from. After a merge: `sources` lists every old table involved and `merged` holds the other records whole. */
   legacy: Record<string, unknown>;
 };
 
 export const candidateKey = (c: Pick<Candidate, "channel" | "address" | "cik">) => `${c.channel}|${c.address}|${c.cik ?? ""}`;
 
 const time = (s: string | null) => (s ? Date.parse(s) : NaN);
+const unique = <T>(list: T[]) => [...new Set(list)];
+
+/** The old tables a record was built from. */
+export const sourcesOf = (c: Pick<Candidate, "legacy">): string[] =>
+  Array.isArray(c.legacy.sources) ? (c.legacy.sources as string[]) : typeof c.legacy.source === "string" ? [c.legacy.source] : [];
+
+/** An old record kept whole inside the row it was merged into: nothing it recorded is thrown away. */
+function keep(c: Candidate): Record<string, unknown> {
+  const { merged: _merged, sources: _sources, ...own } = c.legacy;
+  return {
+    ...own,
+    status: c.status, created_at: c.createdAt, confirmed_at: c.confirmedAt, unsubscribed_at: c.unsubscribedAt, signup_form: c.source,
+    categories: c.categories, cadence: c.cadence, tokens: c.oldTokens,
+    consent: { text: c.consentText, at: c.consentAt, ip: c.consentIp, user_agent: c.consentUserAgent },
+  };
+}
+
+const hasEvidence = (c: Candidate) => c.consentText !== null || c.consentAt !== null || c.consentIp !== null || c.consentUserAgent !== null;
 
 /**
  * Two old records for the same address, channel and company (one from each old site) become one.
@@ -99,15 +123,26 @@ const time = (s: string | null) => (s ? Date.parse(s) : NaN);
  * - An opt-out wins, unless the other record is a sign-up made after that opt-out. An opt-out with no
  *   recorded time always wins: we never start emailing someone on a guess.
  * - Otherwise a confirmed sign-up beats an unconfirmed one, and the older record is kept.
- * - When neither is an opt-out, the person keeps every kind of alert either record asked for.
- * The record that loses is kept inside `legacy`, with its link tokens, so nothing is thrown away.
+ * - Kinds of alert are combined only when both records are confirmed (or both unconfirmed): an
+ *   unanswered request never widens what a confirmed subscription receives.
+ * - The record that loses is kept whole inside `legacy.merged` (status, times, consent record, link
+ *   codes), and its link codes join `oldTokens`, so links already emailed for it still work.
+ * - The consent record shown on the row is the winner's; when the winner has none, the other record's.
  */
 export function mergeCandidates(a: Candidate, b: Candidate): Candidate {
   if (candidateKey(a) !== candidateKey(b)) throw new Error("mergeCandidates needs two records for the same subscription");
   const pick = (winner: Candidate, loser: Candidate, both: boolean): Candidate => ({
     ...winner,
+    ...(!hasEvidence(winner) && hasEvidence(loser)
+      ? { consentText: loser.consentText, consentAt: loser.consentAt, consentIp: loser.consentIp, consentUserAgent: loser.consentUserAgent }
+      : {}),
     categories: both ? sortCategories([...winner.categories, ...loser.categories]) : winner.categories,
-    legacy: { ...winner.legacy, merged_with: loser.legacy, other_tokens: [loser.unsubscribeToken, loser.legacyToken].filter(Boolean) },
+    oldTokens: unique([...winner.oldTokens, ...loser.oldTokens]),
+    legacy: {
+      ...winner.legacy,
+      sources: unique([...sourcesOf(winner), ...sourcesOf(loser)]),
+      merged: [...((winner.legacy.merged as unknown[]) ?? []), keep(loser), ...((loser.legacy.merged as unknown[]) ?? [])],
+    },
   });
 
   const aOut = a.status === "unsubscribed";
@@ -126,7 +161,7 @@ export function mergeCandidates(a: Candidate, b: Candidate): Candidate {
     const signedUpLater = !Number.isNaN(optedOutAt) && !Number.isNaN(signedUpAt) && signedUpAt > optedOutAt;
     return signedUpLater ? pick(other, out, false) : pick(out, other, false);
   }
-  if (a.status !== b.status) return a.status === "active" ? pick(a, b, true) : pick(b, a, true);
+  if (a.status !== b.status) return a.status === "active" ? pick(a, b, false) : pick(b, a, false);
   return time(a.createdAt) <= time(b.createdAt) ? pick(a, b, true) : pick(b, a, true);
 }
 

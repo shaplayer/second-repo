@@ -9,6 +9,9 @@
 #   consent-*.csv                 the sign-up and consent records as plain spreadsheets (legal evidence)
 #   *.contents.txt, SHA256SUMS    what each backup holds, and checksums to prove a copy is intact
 #
+# If any backup fails, the script stops and says so: it never reports "Done" for a backup that is
+# missing or empty.
+#
 # The files hold personal data (emails, phone numbers). They are readable only by the user who ran this.
 # Copy the folder off the server to somewhere safe, and keep it: see docs/RUNBOOK.md.
 #
@@ -25,10 +28,8 @@ read_env() {
   fi
   printf '%s' "$value"
 }
-# Shows which server a connection string points at, without its user name or password.
-host_of() { printf '%s' "$1" | sed -E 's#^[a-zA-Z]+://([^@/]*@)?([^:/?]*).*#\2#'; }
 
-for tool in pg_dump pg_restore psql sha256sum; do
+for tool in pg_dump pg_restore psql sha256sum node; do
   command -v "$tool" >/dev/null || { echo "Missing the '$tool' program. On Ubuntu: sudo apt-get install -y postgresql-client"; exit 1; }
 done
 
@@ -39,36 +40,61 @@ site_url="$(read_env DATASITE_DATABASE_URL)"
 dir="${BACKUP_DIR:-backups}/$(date -u +%Y%m%d-%H%M%SZ)"
 mkdir -p "$dir"
 
-dump() { # dump LABEL URL [extra pg_dump options]
+# Runs a command with the connection given through the PG* environment variables. The connection
+# string (and so the password) never appears on a command line, where other users of the server
+# could see it with "ps".
+with_db() { # with_db URL command...
+  local url="$1"
+  shift
+  (
+    eval "$(BS_URL="$url" node -e '
+      const u = new URL(process.env.BS_URL);
+      const q = (v) => "\x27" + String(v).replace(/\x27/g, "\x27\\\x27\x27") + "\x27";
+      const host = u.searchParams.get("host") || decodeURIComponent(u.hostname);
+      const out = { PGHOST: host, PGPORT: u.port || "5432", PGUSER: decodeURIComponent(u.username), PGPASSWORD: decodeURIComponent(u.password),
+                    PGDATABASE: decodeURIComponent(u.pathname.slice(1)), PGSSLMODE: u.searchParams.get("sslmode") || "" };
+      for (const [k, v] of Object.entries(out)) if (v) console.log("export " + k + "=" + q(v));
+    ')"
+    "$@"
+  )
+}
+host_of() { BS_URL="$1" node -e 'const u = new URL(process.env.BS_URL); console.log(u.searchParams.get("host") || u.hostname)'; }
+
+dump() { # dump LABEL URL [extra pg_dump options]: fails when the dump fails or comes out empty
   local label="$1" url="$2"
   shift 2
-  pg_dump --format=custom --no-owner --no-privileges "$@" --file "$dir/$label.dump" "$url"
-  pg_restore --list "$dir/$label.dump" > "$dir/$label.contents.txt"
+  with_db "$url" pg_dump --format=custom --no-owner --no-privileges "$@" --file "$dir/$label.dump" || return 1
+  [[ -s "$dir/$label.dump" ]] || { echo "  $label.dump is empty."; return 1; }
+  pg_restore --list "$dir/$label.dump" > "$dir/$label.contents.txt" || return 1
   echo "  $label.dump: $(du -h "$dir/$label.dump" | cut -f1), $(grep -c 'TABLE DATA' "$dir/$label.contents.txt" || true) tables with data"
+  return 0
 }
-export_csv() { # export_csv URL TABLE: skipped quietly when the table is not there
-  local url="$1" table="$2"
-  if [[ "$(psql "$url" --no-psqlrc -Atc "select to_regclass('public.$table') is not null")" == "t" ]]; then
-    psql "$url" --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
-      -c "\\copy (select * from public.$table order by 1) to '$dir/consent-$table.csv' with (format csv, header true)"
+export_csv() { # export_csv URL TABLE: a table that does not exist is skipped; any other problem is an error
+  local url="$1" table="$2" there
+  there="$(with_db "$url" psql --no-psqlrc -At --set ON_ERROR_STOP=1 -c "select to_regclass('public.$table') is not null")" || return 1
+  if [[ "$there" == "t" ]]; then
+    with_db "$url" psql --no-psqlrc --quiet --set ON_ERROR_STOP=1 \
+      -c "\\copy (select * from public.$table order by 1) to '$dir/consent-$table.csv' with (format csv, header true)" || return 1
     echo "  consent-$table.csv: $(($(wc -l < "$dir/consent-$table.csv") - 1)) rows"
   fi
+  return 0
 }
+fail() { echo; echo "BACKUP FAILED: $1"; echo "Nothing in $dir can be relied on. Fix the problem and run the backup again."; exit 1; }
 
 echo "Backing up the one database ($(host_of "$app_url"))…"
 if ! dump app "$app_url" --schema=public --schema=auth --schema=supabase_migrations; then
-  echo "  Could not include the sign-in accounts (schema auth). Backing up the public tables only."
+  echo "  Could not include the sign-in accounts (schema auth). Trying the public tables only."
   rm -f "$dir/app.dump" "$dir/app.contents.txt"
-  dump app "$app_url" --schema=public --schema=supabase_migrations
+  dump app "$app_url" --schema=public --schema=supabase_migrations || fail "the one database could not be backed up."
 fi
-export_csv "$app_url" alert_subscribers
-export_csv "$app_url" alert_subscriptions
+export_csv "$app_url" alert_subscribers || fail "the old app's subscriber list could not be exported."
+export_csv "$app_url" alert_subscriptions || fail "the subscription list could not be exported."
 
 if [[ -n "$site_url" ]]; then
   echo "Backing up the data site's database ($(host_of "$site_url"))…"
-  dump datasite "$site_url"
-  export_csv "$site_url" subscribers
-  export_csv "$site_url" ticker_follows
+  dump datasite "$site_url" || fail "the data site's database could not be backed up."
+  export_csv "$site_url" subscribers || fail "the data site's subscriber list could not be exported."
+  export_csv "$site_url" ticker_follows || fail "the data site's follows could not be exported."
 else
   echo "DATASITE_DATABASE_URL is not set: the data site's database was NOT backed up."
 fi

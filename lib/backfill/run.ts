@@ -24,6 +24,7 @@ import {
   newsSourceKey,
   parseSecArchiveUrl,
   secIndexUrl,
+  sourcesOf,
   type Candidate,
 } from "./mapping";
 import { normalizeTicker } from "../sec/companies";
@@ -61,7 +62,22 @@ export type BackfillOptions = {
   log?: (line: string) => void;
 };
 
-type Ctx = { target: Client; site: Client | null; batch: number; log: (line: string) => void; checks: Check[] };
+type Ctx = {
+  target: Client; site: Client | null; batch: number; log: (line: string) => void; checks: Check[];
+  /** For each step: how many rows should now be in the new table, and how many were found there by looking. */
+  proof: Map<string, { expected: number; found: number }>;
+};
+
+/**
+ * Counts, in the new table itself, the rows a step was supposed to put there. The step's own tallies
+ * ("copied", "already there") are worked out from each other, so they cannot notice a row that was
+ * silently dropped; this can.
+ */
+async function prove(ctx: Ctx, step: string, expected: number, sql: string, params: unknown[]): Promise<void> {
+  const found = Number((await ctx.target.query(sql, params)).rows[0].count);
+  const p = ctx.proof.get(step) ?? { expected: 0, found: 0 };
+  ctx.proof.set(step, { expected: p.expected + expected, found: p.found + found });
+}
 
 /** A timestamp as text in UTC with microseconds, so it survives the trip between databases unchanged. */
 const ts = (col: string) => `to_char(${col} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
@@ -154,9 +170,16 @@ async function stepUsers({ target }: Ctx): Promise<StepReport> {
        from public.profiles p
       where p.id = u.id and u.display_name is not null and u.display_name is distinct from p.display_name`,
   );
+  // One account per email address. A profile is not given a second account when its address already has one here
+  // (the person signed in on the new site before this run), or when an older profile holds the same address.
+  const clash = `p.email <> '' and (
+       exists (select 1 from public.users x where x.id <> p.id and lower(x.email) = lower(p.email))
+    or exists (select 1 from public.profiles o where o.id <> p.id and lower(o.email) = lower(p.email) and (o.created_at, o.id) < (p.created_at, p.id)))`;
+  const clashes = await count(target, "public.profiles p", `where ${clash}`);
+  if (clashes) skip(r, "this email already has an account (kept as one account)", clashes);
   const { rows } = await target.query<{ inserted: boolean }>(
     `insert into public.users as u (id, email, display_name, chat_banned, created_at)
-     select id, email, display_name, chat_banned, created_at from public.profiles
+     select p.id, p.email, p.display_name, p.chat_banned, p.created_at from public.profiles p where not (${clash})
      on conflict (id) do update
        set email = excluded.email, display_name = excluded.display_name, chat_banned = excluded.chat_banned
      where (u.email, u.display_name, u.chat_banned) is distinct from (excluded.email, excluded.display_name, excluded.chat_banned)
@@ -164,7 +187,7 @@ async function stepUsers({ target }: Ctx): Promise<StepReport> {
   );
   r.inserted = rows.filter((x) => x.inserted).length;
   r.refreshed = rows.length - r.inserted;
-  skip(r, "already copied, unchanged", r.source - rows.length);
+  skip(r, "already copied, unchanged", r.source - clashes - rows.length);
   r.targetAfter = await count(target, "public.users");
   return r;
 }
@@ -181,13 +204,20 @@ async function stepWatchlists({ target }: Ctx): Promise<StepReport> {
   r.source = await count(target, "public.watchlist");
   r.targetBefore = await count(target, "public.watchlists");
   const match = `replace(upper(btrim(w.ticker)), '-', '.')`;
+  // The account a watchlist row belongs to: the one with the same id, or (when that person signed in on the new
+  // site first and so has an account under another id) the one with the same email address.
+  const account = `lateral (
+      select u.id from public.users u where u.id = w.user_id
+      union all
+      select u.id from public.profiles p join public.users u on p.email <> '' and lower(u.email) = lower(p.email) where p.id = w.user_id
+      limit 1) a`;
   const { rows } = await target.query<{ inserted: boolean }>(
     `insert into public.watchlists as n (user_id, cik, added_at, backfilled_at)
-     select w.user_id, t.cik, min(w.added_at), now()
+     select a.id, t.cik, min(w.added_at), now()
        from public.watchlist w
-       join public.users u on u.id = w.user_id
+       join ${account} on true
        join public.company_tickers t on t.ticker = ${match}
-      group by w.user_id, t.cik
+      group by a.id, t.cik
      on conflict (user_id, cik) do update set backfilled_at = now() where n.backfilled_at is not null
      returning (xmax = 0) as inserted`,
   );
@@ -206,12 +236,12 @@ async function stepWatchlists({ target }: Ctx): Promise<StepReport> {
   const pairs = Number(
     (await target.query(
       `select count(*) from (
-         select distinct w.user_id, t.cik from public.watchlist w
-           join public.users u on u.id = w.user_id
+         select distinct a.id, t.cik from public.watchlist w
+           join ${account} on true
            join public.company_tickers t on t.ticker = ${match}) x`,
     )).rows[0].count,
   );
-  const noAccount = await count(target, "public.watchlist w", "where not exists (select 1 from public.users u where u.id = w.user_id)");
+  const noAccount = await count(target, `public.watchlist w left join ${account} on true`, "where a.id is null");
   if (noAccount) skip(r, "no account for this watchlist row", noAccount);
   r.leftAlone = pairs - rows.length; // already on the new list and since changed there
   const merged = r.source - lost - noAccount - pairs;
@@ -229,7 +259,8 @@ async function stepWatchlists({ target }: Ctx): Promise<StepReport> {
 
 type FilingRow = { accession: string; cik: number; form: string; accepted: string; primary_url: string; index_url: string; name: string };
 
-async function saveFilings(target: Client, rows: FilingRow[]): Promise<{ filings: number; companies: number }> {
+async function saveFilings(ctx: Ctx, rows: FilingRow[]): Promise<{ filings: number; companies: number }> {
+  const target = ctx.target;
   if (!rows.length) return { filings: 0, companies: 0 };
   const json = JSON.stringify(rows);
   // A filing from a company we do not have yet still needs a company row to hang on.
@@ -250,6 +281,8 @@ async function saveFilings(target: Client, rows: FilingRow[]): Promise<{ filings
      on conflict (accession) do nothing`,
     [json],
   );
+  const accessions = [...new Set(rows.map((x) => x.accession))];
+  await prove(ctx, "filings", accessions.length, `select count(*) from public.filings where accession = any($1::text[])`, [accessions]);
   return { filings: f.rowCount ?? 0, companies: co.rowCount ?? 0 };
 }
 
@@ -279,7 +312,7 @@ async function stepFilings(ctx: Ctx): Promise<StepReport> {
       }
     }
     for (const part of chunks(good, batch)) {
-      const saved = await saveFilings(target, part);
+      const saved = await saveFilings(ctx, part);
       r.inserted += saved.filings;
       newCompanies += saved.companies;
       skip(r, "already in filings", part.length - saved.filings);
@@ -310,7 +343,7 @@ async function stepFilings(ctx: Ctx): Promise<StepReport> {
         }
       }
       const part = [...good.values()];
-      const saved = await saveFilings(target, part);
+      const saved = await saveFilings(ctx, part);
       r.inserted += saved.filings;
       newCompanies += saved.companies;
       skip(r, "already in filings", part.length - saved.filings);
@@ -323,7 +356,8 @@ async function stepFilings(ctx: Ctx): Promise<StepReport> {
 
 /* -------------------------------------------------------------- summaries */
 
-async function stepSummaries({ target }: Ctx): Promise<StepReport> {
+async function stepSummaries(ctx: Ctx): Promise<StepReport> {
+  const { target } = ctx;
   const r = blank("summaries");
   if (!(await isTable(target, "filing_summaries"))) {
     r.notes.push("The old filing_summaries table is not here: nothing to copy.");
@@ -354,6 +388,8 @@ async function stepSummaries({ target }: Ctx): Promise<StepReport> {
   );
   if (noFiling) skip(r, "no filing row (its link was not usable; see the filings step)", noFiling);
   skip(r, "already in summaries", r.source - noFiling - r.inserted);
+  await prove(ctx, "summaries", r.source - noFiling,
+    `select count(*) from public.filing_summaries o join public.summaries s on s.accession = o.accession`, []);
   r.targetAfter = await count(target, "public.summaries");
   return r;
 }
@@ -411,6 +447,8 @@ async function stepNews(ctx: Ctx): Promise<StepReport> {
     );
     r.inserted += ins.rowCount ?? 0;
     skip(r, "already in news", good.length - (ins.rowCount ?? 0));
+    const urls = [...new Set(good.map((g) => String(g.url)))];
+    await prove(ctx, "news", urls.length, `select count(*) from public.news where url = any($1::text[])`, [urls]);
   });
   if (unknownSources.size) {
     r.notes.push(`Sources not copied: ${[...unknownSources].map(([s, n]) => `${s} (${n})`).join(", ")}`);
@@ -424,7 +462,7 @@ async function stepNews(ctx: Ctx): Promise<StepReport> {
 const SUB_COLS = `channel text, address text, cik bigint, categories text[], cadence text, status text,
   "confirmToken" text, "unsubscribeToken" text, "legacyToken" text, "consentText" text, "consentAt" text,
   "consentIp" text, "consentUserAgent" text, source text, "confirmedAt" text, "unsubscribedAt" text,
-  "createdAt" text, legacy jsonb`;
+  "createdAt" text, legacy jsonb, "oldTokens" text[]`;
 
 async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
   const { target, site, batch, checks } = ctx;
@@ -434,6 +472,7 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
   const all = new Map<string, Candidate>();
   const sources: string[] = [];
   const unknownTickers = new Map<string, number>();
+  let followOnlyOrLeft = 0;
   const add = (c: Candidate) => {
     const key = candidateKey(c);
     const had = all.get(key);
@@ -464,6 +503,7 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
       const base = {
         channel: "email" as const, address: email, cadence: a.prefs?.mode === "daily" ? ("digest" as const) : ("instant" as const),
         status: a.confirmed ? ("active" as const) : ("pending" as const), legacyToken: TOKEN_RE.test(a.token) ? a.token : null,
+        oldTokens: TOKEN_RE.test(a.token) ? [a.token] : [],
         consentText: null, consentAt: null, consentIp: null, consentUserAgent: null, source: "app",
         confirmedAt: null, unsubscribedAt: null, createdAt: a.created,
       };
@@ -523,34 +563,37 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
           consentText: s.consent_text, consentAt: s.consent_at, consentIp: s.ip, consentUserAgent: s.user_agent,
           source: s.source, confirmedAt: null, createdAt: s.created, legacy,
         };
-        // Off the general list by the unsubscribe link (no time was recorded), or never on it (follow only).
+        // Off the general list. The old site recorded no time for its unsubscribe link, and for someone who first
+        // followed a company it cannot tell "never joined the list" from "joined later, then left". Either way the
+        // person is not on the list, so the record is copied as an opt-out with no time: it wins over a sign-up for
+        // the same list on the old app. We never email on a guess.
         const offList = !s.general_alerts;
         const followOnly = offList && s.source === "follow" && !s.unsubscribed;
+        if (followOnly) followOnlyOrLeft++;
+        const mark = followOnly ? { ...legacy, follow_only_or_left: true } : legacy;
 
         if (s.email !== null) {
           const email = s.email.trim().toLowerCase();
           if (!EMAIL_RE.test(email)) skip(r, "address is not a valid email");
-          else if (followOnly) skip(r, "follows companies only: was never on the general list");
           else {
             const token = s.unsub_token && TOKEN_RE.test(s.unsub_token) ? s.unsub_token : null;
             add({
-              ...evidence, channel: "email", address: email,
+              ...evidence, legacy: mark, channel: "email", address: email,
               status: s.unsubscribed || offList ? "unsubscribed" : "active",
               unsubscribedAt: s.unsubscribed,
-              unsubscribeToken: token ?? derivedToken("site-email", s.id), legacyToken: token,
+              unsubscribeToken: token ?? derivedToken("site-email", s.id), legacyToken: token, oldTokens: token ? [token] : [],
             });
           }
         }
         if (s.phone !== null) {
           if (!PHONE_RE.test(s.phone)) skip(r, "phone is not in +15555550123 form");
           else if (!s.sms_consent) skip(r, "phone with no consent to texts");
-          else if (followOnly) skip(r, "follows companies only: was never on the general list");
           else {
             add({
-              ...evidence, channel: "sms", address: s.phone,
+              ...evidence, legacy: mark, channel: "sms", address: s.phone,
               status: s.unsubscribed || offList ? "unsubscribed" : "active",
               unsubscribedAt: s.unsubscribed,
-              unsubscribeToken: derivedToken("site-sms", s.id), legacyToken: null,
+              unsubscribeToken: derivedToken("site-sms", s.id), legacyToken: null, oldTokens: [],
             });
           }
         }
@@ -563,11 +606,13 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
         subscriber_id: string; ticker: string; channel: "email" | "sms"; token: string; consent_text: string | null;
         consent_at: string | null; confirmed: string | null; unsubscribed: string | null; created: string;
         email: string | null; phone: string | null; s_unsubscribed: string | null; sms_consent: boolean;
+        s_ip: string | null; s_user_agent: string | null; s_source: string | null;
       };
       const fq: PageQuery = {
         cols: `f.subscriber_id::text as subscriber_id, f.ticker, f.channel, f.token, f.consent_text,
                ${ts("f.consent_at")} as consent_at, ${ts("f.confirmed_at")} as confirmed, ${ts("f.unsubscribed_at")} as unsubscribed,
-               ${ts("f.created_at")} as created, s.email, s.phone, ${ts("s.unsubscribed_at")} as s_unsubscribed, s.sms_consent`,
+               ${ts("f.created_at")} as created, s.email, s.phone, ${ts("s.unsubscribed_at")} as s_unsubscribed, s.sms_consent,
+               s.ip as s_ip, s.user_agent as s_user_agent, s.source as s_source`,
         from: "ticker_follows f join subscribers s on s.id = f.subscriber_id", key: "f.id",
       };
       r.source += await readAll<F>(ctx, site, "data-site follows", fq, (page) => {
@@ -594,10 +639,14 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
             f.unsubscribed || stopped || noConsent ? "unsubscribed" : f.confirmed ? "active" : "pending";
           add({
             channel: f.channel, address, cik: co.cik, categories: DATA_SITE_FOLLOW_CATEGORIES, cadence: "instant", status,
-            confirmToken: status === "pending" ? f.token : null, unsubscribeToken: f.token, legacyToken: f.token,
+            confirmToken: status === "pending" ? f.token : null, unsubscribeToken: f.token, legacyToken: f.token, oldTokens: [f.token],
             consentText: f.consent_text, consentAt: f.consent_at, consentIp: null, consentUserAgent: null, source: "follow",
             confirmedAt: f.confirmed, unsubscribedAt: f.unsubscribed ?? stopped, createdAt: f.created,
-            legacy: { source: "data-site:ticker_follows", id: f.id, subscriber_id: f.subscriber_id },
+            // The old site kept the visitor's IP address and browser on the person's record, not on each follow.
+            legacy: {
+              source: "data-site:ticker_follows", id: f.id, subscriber_id: f.subscriber_id,
+              subscriber: { ip: f.s_ip, user_agent: f.s_user_agent, signup_form: f.s_source },
+            },
           });
         }
       });
@@ -609,53 +658,86 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
   /* Save.
    *
    * A row that is already there is refreshed from the old data only when both of these hold:
-   *   - the new site has not changed it since it was copied (updated_at = backfilled_at), and
+   *   - the person has not changed it on the new site since it was copied (updated_at = backfilled_at), and
    *   - every old table it was built from was read in this run. Without this, a run that leaves out the
    *     data site would rebuild a merged row from the old app alone, losing an opt-out recorded on the
    *     data site and wiping the consent record.
    */
   const ours = `s.backfilled_at is not null and s.updated_at = s.backfilled_at`;
   const complete = (param: string) =>
-    `s.legacy->>'source' = any(${param}::text[])
-     and coalesce(s.legacy->'merged_with'->>'source', s.legacy->>'source') = any(${param}::text[])`;
+    `coalesce(s.legacy->'sources', jsonb_build_array(s.legacy->>'source')) <@ to_jsonb(${param}::text[])`;
   const at = (s: string | null) => (s ? Date.parse(s) : NaN);
-  /** True when the person signed up or confirmed again after the old opt-out (the same rule as the SQL below). */
-  const optedInAgain = (row: { confirmed: string | null; created: string; copied: string | null }, c: Candidate) => {
+  /**
+   * True when the person signed up or confirmed again after the old opt-out (the same rule as the SQL below).
+   * With a recorded time: any sign-up or confirmation after it. With no recorded time, the order cannot be
+   * known from the times alone, so only a confirmation made here AFTER we already knew of the opt-out counts.
+   */
+  const optedInAgain = (
+    row: { confirmed: string | null; created: string; copied: string | null; applied: string | null; copied_status: string | null }, c: Candidate,
+  ) => {
     if (c.unsubscribedAt) return Math.max(at(row.confirmed) || -Infinity, at(row.created)) > at(c.unsubscribedAt);
-    return row.confirmed !== null && at(row.confirmed) > (row.copied ? at(row.copied) : -Infinity);
+    const known = row.applied ?? (row.copied_status === "unsubscribed" ? row.copied : null);
+    return row.confirmed !== null && known !== null && at(row.confirmed) > at(known);
   };
   let mismatched = 0;
   let compared = 0;
   let optOutsApplied = 0;
   let stillReceiving = 0;
+  let movedCodes = 0;
+  // The keys of everything the old data holds now, for the "no longer in the old data" step below.
+  await target.query(`create temporary table if not exists tmp_backfill_keys (channel text, address text, cik bigint) on commit drop`);
+  await target.query(`truncate tmp_backfill_keys`);
+
   for (const part of chunks([...all.values()], batch)) {
+    const json = JSON.stringify(part.map((c) => ({ ...c, legacy: { ...c.legacy, sources: sourcesOf(c), copied_status: c.status } })));
+    await target.query(
+      `insert into tmp_backfill_keys select x.channel, x.address, x.cik from jsonb_to_recordset($1::jsonb) as x(channel text, address text, cik bigint)`,
+      [json],
+    );
+
+    // A followed ticker that now belongs to a different company: the follow moves with the ticker. The row copied
+    // for the old company is closed and gives up its link codes, so the same codes can be written on the new row.
+    const moved = await target.query(
+      `update public.alert_subscriptions s
+          set status = 'unsubscribed', unsubscribed_at = coalesce(s.unsubscribed_at, now()), confirm_token = null,
+              unsubscribe_token = substr(encode(sha256(convert_to('moved:' || s.id::text, 'UTF8')), 'hex'), 1, 32),
+              legacy_token = null, legacy_tokens = '{}',
+              legacy = coalesce(s.legacy, '{}'::jsonb) || jsonb_build_object('ticker_moved_to_another_company_at', now())
+         from jsonb_to_recordset($1::jsonb) as x(${SUB_COLS})
+        where s.backfilled_at is not null
+          and (s.unsubscribe_token = x."unsubscribeToken" or (x."confirmToken" is not null and s.confirm_token = x."confirmToken"))
+          and (s.channel, s.address) = (x.channel, x.address) and s.cik is distinct from x.cik`,
+      [json],
+    );
+    movedCodes += moved.rowCount ?? 0;
+
     const { rows } = await target.query<{ inserted: boolean }>(
       `insert into public.alert_subscriptions as s
-         (channel, address, cik, categories, cadence, status, confirm_token, unsubscribe_token, legacy_token,
+         (channel, address, cik, categories, cadence, status, confirm_token, unsubscribe_token, legacy_token, legacy_tokens,
           consent_text, consent_at, consent_ip, consent_user_agent, source, confirmed_at, unsubscribed_at,
           created_at, updated_at, backfilled_at, legacy)
-       select x.channel, x.address, x.cik, x.categories, x.cadence, x.status, x."confirmToken", x."unsubscribeToken", x."legacyToken",
+       select x.channel, x.address, x.cik, x.categories, x.cadence, x.status, x."confirmToken", x."unsubscribeToken", x."legacyToken", x."oldTokens",
               x."consentText", x."consentAt"::timestamptz, x."consentIp", x."consentUserAgent", x.source,
               x."confirmedAt"::timestamptz, x."unsubscribedAt"::timestamptz, x."createdAt"::timestamptz, now(), now(), x.legacy
          from jsonb_to_recordset($1::jsonb) as x(${SUB_COLS})
        on conflict on constraint alert_subscriptions_one_per_address_and_company do update
          set categories = excluded.categories, cadence = excluded.cadence, status = excluded.status,
              confirm_token = excluded.confirm_token, unsubscribe_token = excluded.unsubscribe_token,
-             legacy_token = excluded.legacy_token, consent_text = excluded.consent_text, consent_at = excluded.consent_at,
+             legacy_token = excluded.legacy_token, legacy_tokens = excluded.legacy_tokens,
+             consent_text = excluded.consent_text, consent_at = excluded.consent_at,
              consent_ip = excluded.consent_ip, consent_user_agent = excluded.consent_user_agent, source = excluded.source,
              confirmed_at = excluded.confirmed_at, unsubscribed_at = excluded.unsubscribed_at,
              created_at = excluded.created_at, backfilled_at = now(), legacy = excluded.legacy
        where ${ours} and ${complete("$2")}
        returning (xmax = 0) as inserted`,
-      [JSON.stringify(part), sources],
+      [json, sources],
     );
     const inserted = rows.filter((x) => x.inserted).length;
     r.inserted += inserted;
     r.refreshed += rows.length - inserted;
 
-    // An opt-out on an old site always carries over, even to a row the new site has changed, unless the
-    // person signed up or confirmed again after it. Where the old site recorded no time for the opt-out,
-    // only a confirmation made here after the row was copied counts as "again".
+    // An opt-out on an old site always carries over, even to a row the person has changed here, unless they
+    // signed up or confirmed again after it (see optedInAgain above for the rule when the old site kept no time).
     const off = await target.query(
       `update public.alert_subscriptions s
           set status = 'unsubscribed', unsubscribed_at = coalesce(x."unsubscribedAt"::timestamptz, now()),
@@ -666,9 +748,12 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
           and x.status = 'unsubscribed' and s.status = 'active'
           and not (case when x."unsubscribedAt" is not null
                         then greatest(s.confirmed_at, s.created_at) > x."unsubscribedAt"::timestamptz
-                        else s.confirmed_at is not null and s.confirmed_at > coalesce(s.backfilled_at, '-infinity'::timestamptz)
+                        else s.confirmed_at is not null and s.confirmed_at > coalesce(
+                               (s.legacy->>'old_site_opt_out_applied_at')::timestamptz,
+                               case when s.legacy->>'copied_status' = 'unsubscribed' then s.backfilled_at end,
+                               'infinity'::timestamptz)
                    end)`,
-      [JSON.stringify(part)],
+      [json],
     );
     optOutsApplied += off.rowCount ?? 0;
 
@@ -677,11 +762,13 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
     const back = await target.query<{
       channel: string; address: string; cik: string | null; status: string; consent_text: string | null; consent_at: string | null;
       consent_ip: string | null; consent_user_agent: string | null; written: boolean; ours: boolean;
-      confirmed: string | null; created: string; copied: string | null;
+      confirmed: string | null; created: string; copied: string | null; applied: string | null; copied_status: string | null; applied_now: boolean;
     }>(
       `select s.channel, s.address, s.cik::text as cik, s.status, s.consent_text, ${ts("s.consent_at")} as consent_at, s.consent_ip,
               s.consent_user_agent, (s.backfilled_at = now()) is true as written, (${ours}) is true as ours,
-              ${ts("s.confirmed_at")} as confirmed, ${ts("s.created_at")} as created, ${ts("s.backfilled_at")} as copied
+              ${ts("s.confirmed_at")} as confirmed, ${ts("s.created_at")} as created, ${ts("s.backfilled_at")} as copied,
+              ${ts("(s.legacy->>'old_site_opt_out_applied_at')::timestamptz")} as applied, s.legacy->>'copied_status' as copied_status,
+              ((s.legacy->>'old_site_opt_out_applied_at')::timestamptz = now()) is true as applied_now
          from public.alert_subscriptions s
          join jsonb_to_recordset($1::jsonb) as k(channel text, address text, cik bigint)
            on s.channel = k.channel and s.address = k.address and s.cik is not distinct from k.cik`,
@@ -705,7 +792,9 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
       } else {
         r.leftAlone++; // changed on the new site: deliberately not overwritten
       }
-      if (c.status === "unsubscribed" && got.status === "active" && !optedInAgain(got, c)) stillReceiving++;
+      // A row just switched off by the statement above reports its opt-out time as "now": judge it as it was before.
+      const before = got.applied_now ? { ...got, applied: null } : got;
+      if (c.status === "unsubscribed" && got.status === "active" && !optedInAgain(before, c)) stillReceiving++;
     }
   }
   checks.push({
@@ -716,16 +805,27 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
   if (optOutsApplied) {
     r.notes.push(`Switched off ${optOutsApplied} subscriptions that were changed on the new site: the old data has a later opt-out for them.`);
   }
+  if (movedCodes) r.notes.push(`${movedCodes} follows moved with their ticker to a different company (the SEC reassigned the ticker).`);
+  if (followOnlyOrLeft) {
+    r.notes.push(
+      `${followOnlyOrLeft} people on the data site follow companies but are not on its general list (they never joined it, or left it: the old site ` +
+        `cannot tell which). They are copied as off the general list, and that also switches off a pick-list sign-up on the old app for the same address.`,
+    );
+  }
 
-  // Copied on an earlier run, still untouched, and no longer in the old data (for example the person
-  // unsubscribed on the old app, which deletes its record): stop sending to them. Only rows whose old
-  // tables were all read in this run can be judged this way.
+  // Copied on an earlier run and no longer in the old data (for example the person unsubscribed on the old app,
+  // which deletes its record): stop sending to them. This applies even to a row the person has changed here,
+  // unless they confirmed here after the copy. Only rows whose old tables were all read in this run can be judged.
   if (sources.length) {
     const gone = await target.query(
       `update public.alert_subscriptions s
-          set status = 'unsubscribed', unsubscribed_at = now(), backfilled_at = now(),
+          set status = 'unsubscribed', unsubscribed_at = now(), confirm_token = null,
+              backfilled_at = case when ${ours} then now() else s.backfilled_at end,
               legacy = coalesce(s.legacy, '{}'::jsonb) || jsonb_build_object('removed_from_old_site_noticed_at', now())
-        where ${ours} and s.backfilled_at < now() and s.status <> 'unsubscribed' and ${complete("$1")}`,
+        where s.backfilled_at is not null and s.status <> 'unsubscribed' and ${complete("$1")}
+          and not exists (select 1 from tmp_backfill_keys k
+                           where k.channel = s.channel and k.address = s.address and k.cik is not distinct from s.cik)
+          and not (s.confirmed_at is not null and s.confirmed_at > s.backfilled_at)`,
       [sources],
     );
     if (gone.rowCount) r.notes.push(`Marked ${gone.rowCount} copied subscriptions as unsubscribed: they are no longer in the old data.`);
@@ -742,8 +842,32 @@ async function stepSubscriptions(ctx: Ctx): Promise<StepReport> {
     "public.alert_subscriptions s",
     `where s.status = 'active' and ${ours} and (s.unsubscribed_at is not null or s.legacy ? 'removed_from_old_site_noticed_at')`,
   );
-  const bad = wrong + stillReceiving;
+  // And nobody whose old record has gone may be left receiving, unless they confirmed here since.
+  const orphans = sources.length
+    ? Number((await target.query(
+        `select count(*) from public.alert_subscriptions s
+          where s.backfilled_at is not null and s.status = 'active' and ${complete("$1")}
+            and not exists (select 1 from tmp_backfill_keys k where k.channel = s.channel and k.address = s.address and k.cik is not distinct from s.cik)
+            and not (s.confirmed_at is not null and s.confirmed_at > s.backfilled_at)`,
+        [sources],
+      )).rows[0].count)
+    : 0;
+  const bad = wrong + stillReceiving + orphans;
   checks.push({ name: "No opted-out address is active", ok: bad === 0, detail: bad === 0 ? "none" : `${bad} rows` });
+
+  // Every link code the old sites ever emailed must find a row here.
+  const codes = [...all.values()].flatMap((c) => c.oldTokens);
+  let lost = 0;
+  for (const part of chunks([...new Set(codes)], 5000)) {
+    const found = await target.query(
+      `select count(*) from unnest($1::text[]) as t(code)
+        where exists (select 1 from public.alert_subscriptions s
+                       where s.unsubscribe_token = t.code or s.confirm_token = t.code or s.legacy_token = t.code or s.legacy_tokens @> array[t.code])`,
+      [part],
+    );
+    lost += part.length - Number(found.rows[0].count);
+  }
+  checks.push({ name: "Every link already emailed still finds its subscription", ok: lost === 0, detail: lost === 0 ? `${new Set(codes).size} codes checked` : `${lost} codes lead nowhere` });
   return r;
 }
 
@@ -803,6 +927,8 @@ async function stepPicks(ctx: Ctx): Promise<StepReport> {
     r.inserted += inserted;
     r.refreshed += rows.length - inserted;
     skip(r, "already copied, unchanged", out.length - rows.length);
+    await prove(ctx, "picks", out.length,
+      `select count(*) from public.picks where imported_from = 'data-site:alerts' and legacy_id = any($1::text[])`, [out.map((o) => o.legacy_id)]);
   });
   if (noDisclosure) {
     r.notes.push(`${noDisclosure} sponsored alerts had no compensation text on the old site. They are marked as sponsored with a note saying so.`);
@@ -875,6 +1001,8 @@ async function stepBroadcasts(ctx: Ctx): Promise<StepReport> {
     r.inserted += inserted;
     r.refreshed += rows.length - inserted;
     skip(r, "already copied, unchanged", out.length - rows.length);
+    await prove(ctx, "broadcasts", out.length,
+      `select count(*) from public.broadcasts where imported_from = 'data-site:broadcasts' and legacy_id = any($1::text[])`, [out.map((o) => o.legacy_id)]);
   });
   if (unfinished) r.notes.push(`${unfinished} sends were still running on the old site. Let them finish there, then run this again.`);
   r.targetAfter = await count(target, "public.broadcasts");
@@ -917,6 +1045,8 @@ async function stepInquiries(ctx: Ctx): Promise<StepReport> {
     r.inserted += inserted;
     r.refreshed += rows.length - inserted;
     skip(r, "already copied, unchanged", page.length - rows.length);
+    await prove(ctx, "inquiries", page.length,
+      `select count(*) from public.inquiries where imported_from = 'data-site:inquiries' and legacy_id = any($1::text[])`, [page.map((q) => q.id)]);
   });
   r.targetAfter = await count(target, "public.inquiries");
   return r;
@@ -931,7 +1061,7 @@ const RUNNERS: Record<StepName, (ctx: Ctx) => Promise<StepReport>> = {
 
 export async function runBackfill(target: Client, site: Client | null, opts: BackfillOptions = {}): Promise<BackfillReport> {
   const log = opts.log ?? (() => {});
-  const ctx: Ctx = { target, site, batch: opts.batchSize ?? 2000, log, checks: [] };
+  const ctx: Ctx = { target, site, batch: opts.batchSize ?? 2000, log, checks: [], proof: new Map() };
   const steps: StepReport[] = [];
 
   // The steps tell "written in this run" from "written earlier" by the transaction's start time, so the
@@ -981,13 +1111,20 @@ export async function runBackfill(target: Client, site: Client | null, opts: Bac
       detail: `${s.source} read; ${s.inserted} copied, ${s.refreshed} refreshed, ${s.leftAlone} left alone, ${skipped} skipped`,
     });
   }
+  for (const [step, p] of ctx.proof) {
+    ctx.checks.push({
+      name: `${step}: every copied row is really in the new table`, ok: p.found === p.expected,
+      detail: p.found === p.expected ? `${p.found} found` : `${p.found} found, ${p.expected} expected`,
+    });
+  }
   const users = steps.find((s) => s.step === "users" && s.ran);
   if (users) {
     const missing = await count(
       target,
       "public.profiles p",
       `where not exists (select 1 from public.users u where u.id = p.id and u.email = p.email
-                            and u.display_name is not distinct from p.display_name and u.chat_banned = p.chat_banned)`,
+                            and u.display_name is not distinct from p.display_name and u.chat_banned = p.chat_banned)
+         and not exists (select 1 from public.users u where p.email <> '' and lower(u.email) = lower(p.email))`,
     );
     ctx.checks.push({ name: "users: every profile has a matching account", ok: missing === 0, detail: missing ? `${missing} missing` : "all present" });
   }

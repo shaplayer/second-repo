@@ -14,7 +14,7 @@ import { normalizeEmail } from "../lib/auth/accounts";
 import { describeTarget, parseArgs } from "../lib/db/target";
 
 async function main() {
-  const { flags } = parseArgs(process.argv.slice(2));
+  const { flags, rest } = parseArgs(process.argv.slice(2), { flags: ["remove", "list"] });
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("Set DATABASE_URL (in .env or the environment)");
   const db = new Client({ connectionString: url });
@@ -26,7 +26,7 @@ async function main() {
       console.log(rows.length ? rows.map((r) => r.email).join("\n") : "Nobody has staff access.");
       return;
     }
-    const email = normalizeEmail(process.argv.slice(2).find((a) => !a.startsWith("--")));
+    const email = normalizeEmail(rest[0]);
     if (!email) throw new Error("Give an email address: npm run admin:grant -- you@yourcompany.com");
     const on = !flags.has("remove");
     await db.query(`insert into public.users (email) select $1 where not exists (select 1 from public.users where lower(email) = $1)`, [email]);

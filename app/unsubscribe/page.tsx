@@ -11,8 +11,10 @@ export const metadata: Metadata = { title: "Unsubscribe", robots: { index: false
 type Option = { scope: "this" | "stocks" | "picks" | "all"; title: string; detail: string };
 
 /** The link in every email lands here. Nothing changes until the person confirms what to stop. */
-export default async function UnsubscribePage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
-  const token = (await searchParams).token ?? "";
+export default async function UnsubscribePage({ searchParams }: { searchParams: Promise<{ token?: string; t?: string }> }) {
+  // Emails from the old data site carry the code as "t"; the old app and this site use "token".
+  const q = await searchParams;
+  const token = q.token ?? q.t ?? "";
   const view = await peekUnsubscribe(db(), token).catch(() => null);
   const name = (s: { cik: number | null; ticker: string | null; company: string | null }) =>
     s.cik === null ? "the free daily pick" : s.ticker ? `$${s.ticker}` : s.company ?? "this company";

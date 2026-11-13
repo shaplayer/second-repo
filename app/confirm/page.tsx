@@ -11,7 +11,7 @@ import { pendingSignup } from "@/lib/web/signup-cookie";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Confirm your alerts", robots: { index: false } };
 
-type Q = { token?: string; done?: string; problem?: string };
+type Q = { token?: string; t?: string; done?: string; problem?: string };
 
 /**
  * Three moments of the same sign-up:
@@ -21,6 +21,8 @@ type Q = { token?: string; done?: string; problem?: string };
  */
 export default async function ConfirmPage({ searchParams }: { searchParams: Promise<Q> }) {
   const q = await searchParams;
+  // Emails from the old data site carry the code as "t".
+  if (!q.token && q.t) q.token = q.t;
   const pool = db();
   const box = "mx-auto flex w-full max-w-[640px] flex-col gap-5 px-4 py-12";
 

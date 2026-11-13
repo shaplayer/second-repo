@@ -17,6 +17,8 @@ import os from "node:os";
 import { Client } from "pg";
 import { recordBackfillRun, runBackfill, type BackfillReport, type StepReport } from "../lib/backfill/run";
 import { BASIC_SUMMARY_WHY, derivedToken } from "../lib/backfill/mapping";
+import { confirmSignup, peekConfirmation, peekUnsubscribe, signUp } from "../lib/alerts/subscriptions";
+import { signInVerifiedEmail } from "../lib/auth/accounts";
 import { loadCompanies } from "../lib/db/companies";
 import { migrate, readMigrations } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
@@ -167,12 +169,12 @@ async function seedOldSite(c: Client) {
 
 type Sub = {
   id: string; channel: string; address: string; cik: string | null; categories: string[]; cadence: string; status: string;
-  confirm_token: string | null; unsubscribe_token: string; legacy_token: string | null; consent_text: string | null; consent_at: string | null;
+  confirm_token: string | null; unsubscribe_token: string; legacy_token: string | null; legacy_tokens: string[]; consent_text: string | null; consent_at: string | null;
   consent_ip: string | null; consent_user_agent: string | null; source: string | null; unsubscribed_at: string | null; created: string;
   legacy: Record<string, unknown>;
 };
 const SUB_SQL = `select id::text as id, channel, address, cik::text as cik, categories, cadence, status, confirm_token, unsubscribe_token,
-    legacy_token, consent_text, to_char(consent_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as consent_at, consent_ip,
+    legacy_token, legacy_tokens, consent_text, to_char(consent_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as consent_at, consent_ip,
     consent_user_agent, source, to_char(unsubscribed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as unsubscribed_at,
     to_char(created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as created, legacy
   from public.alert_subscriptions`;
@@ -573,18 +575,55 @@ async function main() {
         "sms|+15555550101|320193": "active",
         "sms|+15555550102|789019": "unsubscribed",         // STOP ends every text subscription for that number
         "email|follower@example.org|9000003": "active", "email|follower@example.org|1067983": "active",
+        // Follow companies on the data site but are not on its general list (never joined, or left: the old site cannot
+        // tell which). Copied as off the list, so nobody is put on the pick list on a guess.
+        "email|follower@example.org|": "unsubscribed", "email|both@example.org|": "unsubscribed", "email|later@example.org|": "unsubscribed",
       };
       assert.deepEqual(Object.fromEntries([...m.keys()].sort().map((k) => [k, status(k)])), Object.fromEntries(Object.keys(expected).sort().map((k) => [k, expected[k]])));
       const s = step("subscriptions");
       assert.deepEqual(s.skipped, {
         "ticker not in the company list": 2,
         "person with nothing to follow": 2,
-        "follows companies only: was never on the general list": 3,
         "phone with no consent to texts": 1,
         "address is not a valid email": 1,
         "same subscription on both old sites (merged into one)": 3,
       });
       assert.ok(s.notes.join(" ").includes("NOPE") && s.notes.join(" ").includes("ZZZZ"));
+      assert.ok(s.notes.join(" ").includes("3 people on the data site follow companies but are not on its general list"));
+    });
+
+    await test("someone who followed first, joined the list later, then used the list's unsubscribe link is not put on the pick list", async () => {
+      // The old site leaves this person exactly like someone who never joined: source 'follow', general_alerts false, no time.
+      // They are also on the old app's pick list. The opt-out that cannot be ruled out wins.
+      const name = `bs_test_left_${process.pid}`;
+      await root.query(`create database ${name}`);
+      const c = await connect(withDb(ADMIN_URL, name));
+      const s2 = `bs_test_left_site_${process.pid}`;
+      await root.query(`create database ${s2}`);
+      const d = await connect(withDb(ADMIN_URL, s2));
+      try {
+        await c.query(readFileSync("db/local/supabase-shim.sql", "utf8"));
+        await migrate(c);
+        await c.query("begin");
+        await loadCompanies(c, fixture.tickers);
+        await c.query("commit");
+        await c.query(
+          `insert into public.alert_subscribers (email, token, confirmed, tickers, prefs) values ('carol@example.org', $1, true, '{}', '{"picks": true}')`, [TOK("carol")]);
+        await d.query(readFileSync("db/schema.sql", "utf8"));
+        await d.query(`insert into subscribers (id, email, source, general_alerts, unsub_token) values (1, 'carol@example.org', 'follow', false, $1)`, ["c".repeat(32)]);
+        await d.query(`insert into ticker_follows (subscriber_id, ticker, channel, token, confirmed_at) values (1, 'AAPL', 'email', $1, now())`, [TOK("carolf")]);
+        await c.query("begin");
+        const r = await runBackfill(c, d);
+        await c.query("commit");
+        assert.ok(r.ok, JSON.stringify(r.checks.filter((x) => !x.ok)));
+        const rows = await rowsOf<{ cik: string | null; status: string }>(c, `select cik::text as cik, status from public.alert_subscriptions where address = 'carol@example.org' order by cik nulls first`);
+        assert.deepEqual(rows, [{ cik: null, status: "unsubscribed" }, { cik: "320193", status: "active" }]);
+      } finally {
+        await c.end();
+        await d.end();
+        await root.query(`drop database ${name}`);
+        await root.query(`drop database ${s2}`);
+      }
     });
 
     await test("subscriptions: consent wording, time, IP and browser are copied character for character", async () => {
@@ -602,7 +641,9 @@ async function main() {
       assert.equal(m.get("sms|+15555550102|")!.unsubscribed_at, "2026-06-15T08:00:00.654321Z", "the STOP time is kept to the microsecond");
       assert.equal(m.get("sms|+15555550102|789019")!.unsubscribed_at, "2026-06-15T08:00:00.654321Z");
       const check = report.checks.find((c) => c.name === "Consent records copied exactly")!;
-      assert.ok(check.ok && /19 compared/.test(check.detail), check.detail);
+      assert.ok(check.ok && /22 compared/.test(check.detail), check.detail);
+      // A follow keeps the visitor's address and browser from the person's record (the old site stored them there).
+      assert.deepEqual((f.legacy as { subscriber: object }).subscriber, { ip: "unknown", user_agent: 'Mozilla/5.0 (iPhone; "quoted")', signup_form: "home-hero" });
       // Compare straight across the two databases as well, byte for byte.
       const old = await one<{ md5: string; len: number }>(site, `select md5(consent_text) as md5, octet_length(consent_text) as len from subscribers where id = 2`);
       const now = await one<{ md5: string; len: number }>(app, `select md5(consent_text) as md5, octet_length(consent_text) as len from public.alert_subscriptions where address = '+15555550101' and cik is null`);
@@ -624,6 +665,25 @@ async function main() {
       assert.equal(dave.confirm_token, derivedToken("app-confirm", TOK("dave"), 320193));
       const all = [...m.values()];
       assert.equal(new Set(all.map((x) => x.unsubscribe_token)).size, all.length, "every row has its own unsubscribe token");
+      // What matters is that the pages find the rows. Ask the same lookups the unsubscribe and confirm pages use,
+      // with every kind of code the old sites emailed, including for people who were on BOTH old sites.
+      const found = async (code: string) => ((await peekUnsubscribe(app, code))?.matched ?? []).map((x) => `${x.address}|${x.cik ?? ""}`).sort();
+      assert.deepEqual(await found("1".repeat(32)), ["gina@example.org|"], "data-site list link");
+      assert.deepEqual(await found(TOK("follow1")), ["follower@example.org|320193"], "data-site follow link");
+      // The old app's one code per person meant "all my alerts": it reaches every row, including the pick-list row
+      // that was merged into the data site's older record.
+      assert.deepEqual(await found(TOK("alice")), ["alice@example.org|", "alice@example.org|320193", "alice@example.org|789019"]);
+      assert.deepEqual(await found("f2".repeat(16)), ["alice@example.org|"], "the data-site link for the same merged row");
+      // Merged rows where the OTHER site's record won: the losing record's link still works.
+      assert.deepEqual(await found(TOK("both")), ["both@example.org|320193"], "old app code; the data-site opt-out won");
+      assert.deepEqual(await found(TOK("follow5")), ["both@example.org|320193"]);
+      assert.deepEqual(await found(TOK("follow6")), ["later@example.org|789019"], "data-site follow code; the old app sign-up won");
+      assert.deepEqual(await found(TOK("later")), ["later@example.org|789019"]);
+      assert.equal((await peekConfirmation(app, TOK("follow2")))?.waiting.length, 1, "an unanswered data-site confirmation");
+      assert.equal((await peekConfirmation(app, TOK("dave")))?.waiting.length, 1, "an unanswered old-app confirmation");
+      assert.equal(await peekUnsubscribe(app, "z".repeat(32)), null);
+      const check = report.checks.find((c) => c.name === "Every link already emailed still finds its subscription")!;
+      assert.ok(check.ok, check.detail);
     });
 
     await test("subscriptions: alert kinds and timing carry over", async () => {
@@ -636,10 +696,12 @@ async function main() {
       const alice = m.get("email|alice@example.org|")!;
       assert.equal(alice.created, "2026-01-05T00:00:00.000000Z", "of two sign-ups for the same list, the older is kept");
       assert.equal((alice.legacy as { source: string }).source, "data-site:subscribers");
-      assert.ok((alice.legacy as { merged_with?: object }).merged_with, "the other record is kept inside it");
+      const kept = (alice.legacy as { merged: { source: string; status: string; tokens: string[]; consent: object }[] }).merged;
+      assert.deepEqual([kept.length, kept[0].source, kept[0].status, kept[0].tokens], [1, "app:alert_subscribers", "active", [TOK("alice")]], "the other record is kept whole inside it");
+      assert.equal(alice.consent_ip, "203.0.113.12", "the consent record of the record that has one");
       const later = m.get("email|later@example.org|789019")!;
       assert.equal((later.legacy as { source: string }).source, "app:alert_subscribers");
-      assert.deepEqual((later.legacy as { other_tokens: string[] }).other_tokens, [TOK("follow6"), TOK("follow6")]);
+      assert.deepEqual((later.legacy as { sources: string[] }).sources.sort(), ["app:alert_subscribers", "data-site:ticker_follows"]);
     });
 
     await test("nothing in either old database was changed", async () => {
@@ -656,20 +718,46 @@ async function main() {
     });
 
     /* ------------------------------------------------------------ run again */
-    await test("second run: nothing new, nothing different", async () => {
+    await test("second run: nothing new, nothing different, even after people sign in on the new site", async () => {
+      // Signing in ties a person's rows to their account. That is not a change by the person, so their rows must
+      // still count as untouched: otherwise an opt-out made on an old site afterwards would never reach them.
+      await signInVerifiedEmail(app, "alice@example.org");
+      assert.equal(await num(app, `select count(*) from public.alert_subscriptions where address = 'alice@example.org' and user_id = $1`, [U1]), 3);
       const before = await snapshot(app);
       report = await backfill();
       assert.ok(report.ok, JSON.stringify(report.checks.filter((c) => !c.ok)));
       for (const s of report.steps.filter((x) => x.ran)) assert.equal(s.inserted, 0, `${s.step} copied rows again`);
-      assert.equal(step("subscriptions").refreshed, 19);
+      assert.deepEqual([step("subscriptions").refreshed, step("subscriptions").leftAlone], [22, 0]);
       assert.equal(await snapshot(app), before);
+    });
+
+    await test("a row that silently fails to arrive makes the run fail (the tallies alone would not notice)", async () => {
+      await site.query(
+        `insert into news_items (kind, ticker, company, title, url, source, published_at)
+         values ('press', 'MSFT', 'Microsoft', 'A release that must arrive', 'https://www.prnewswire.com/news-releases/msft-2.html', 'PR Newswire', '2026-11-06T10:00:00Z')`,
+      );
+      await app.query("begin");
+      await site.query("begin transaction isolation level repeatable read read only");
+      try {
+        // Something swallows every new row in the news table.
+        await app.query(`create function pg_temp.swallow() returns trigger language plpgsql as $$ begin return null; end $$`);
+        await app.query(`create trigger swallow before insert on public.news for each row execute function pg_temp.swallow()`);
+        const r = await runBackfill(app, site);
+        assert.equal(r.ok, false);
+        const failed = r.checks.filter((c) => !c.ok).map((c) => c.name);
+        assert.deepEqual(failed, ["news: every copied row is really in the new table"]);
+      } finally {
+        await app.query("rollback");
+        await site.query("rollback");
+      }
     });
 
     await test("a row the new site has changed is left alone; one the old site has since removed stops receiving", async () => {
       // On the new site, Gina unsubscribes and Alice switches her Apple alerts to a daily summary.
       await app.query(`update public.alert_subscriptions set status = 'unsubscribed', unsubscribed_at = now() where address = 'gina@example.org'`);
-      await app.query(`update public.alert_subscriptions set cadence = 'digest' where address = 'alice@example.org' and cik = 320193`);
-      // On the old app, Dave unsubscribes (the old app deletes its record) and Alice drops Microsoft.
+      await app.query(`update public.alert_subscriptions set cadence = 'digest' where address = 'alice@example.org' and cik in (320193, 789019)`);
+      // On the old app, Dave unsubscribes (the old app deletes its record) and Alice drops Microsoft: an opt-out that
+      // shows up only as "no longer in the old data". It must reach her Microsoft row although she changed that row here.
       await app.query(`delete from public.alert_subscribers where email = 'dave@example.org'`);
       await app.query(`update public.alert_subscribers set tickers = '{AAPL}' where email = 'alice@example.org'`);
       await app.query(`delete from public.watchlist where ticker = 'BRK.B'`);
@@ -719,7 +807,8 @@ async function main() {
       // 3. Changed here, then left the general list by the old unsubscribe link, which records no time.
       await app.query(`update public.alert_subscriptions set cadence = 'digest' where ${on("upper@example.org", null)}`);
       await site.query(`update subscribers set general_alerts = false where id = 9`);
-      // 4. The same with no time, but this person confirmed here after the copy; their untouched phone row has no such excuse.
+      // 4. The same with no time, and a confirmation here since the last copy. Which came first cannot be known, so the
+      //    opt-out wins: we never keep emailing on a guess.
       await site.query(`update subscribers set general_alerts = false where id = 11`);
       await app.query(`update public.alert_subscriptions set confirmed_at = now() where ${on("combo@example.org", null)}`);
       // 5. Still waiting to confirm a new sign-up here: left for the confirmation link to decide.
@@ -734,15 +823,38 @@ async function main() {
       assert.equal(first.cadence, "digest", "the change made here is otherwise kept");
       assert.equal(m.get("email|follower@example.org|9000003")!.status, "active");
       assert.equal(m.get("email|upper@example.org|")!.status, "unsubscribed");
-      assert.equal(m.get("email|combo@example.org|")!.status, "active");
+      assert.equal(m.get("email|combo@example.org|")!.status, "unsubscribed");
       assert.equal(m.get("sms|+15555550104|")!.status, "unsubscribed");
       assert.equal(m.get("email|harry@example.org|")!.status, "pending");
-      assert.ok(step("subscriptions").notes.join(" ").includes("Switched off 2 subscriptions that were changed on the new site"));
+      assert.ok(step("subscriptions").notes.join(" ").includes("Switched off 3 subscriptions that were changed on the new site"));
       // Nothing flips back on the next run.
       report = await backfill();
       assert.ok(report.ok);
       const again = await subs();
       for (const [k, v] of m) assert.equal(again.get(k)!.status, v.status, k);
+      // 6. Harry had opted out on the old site before the first copy (we knew). He now confirms a fresh sign-up here,
+      //    and Combo signs up again and confirms too. Both are clearly later than the opt-outs we already applied: they stay on.
+      await confirmSignup(app, "h".repeat(32), { ip: null, userAgent: null });
+      const redo = await signUp(app, { email: "combo@example.org", picks: true, source: "test", consentText: "x", ip: null, userAgent: null });
+      await confirmSignup(app, redo.confirmToken!, { ip: null, userAgent: null });
+      report = await backfill();
+      assert.ok(report.ok, JSON.stringify(report.checks.filter((c) => !c.ok)));
+      const last = await subs();
+      assert.equal(last.get("email|harry@example.org|")!.status, "active");
+      assert.equal(last.get("email|combo@example.org|")!.status, "active");
+    });
+
+    await test("someone who signed in here first and then opened an account on the old app is one account, and the copy still runs", async () => {
+      const fresh = await signInVerifiedEmail(app, "newcomer@example.org");
+      // The old app is still live: the same person signs up there (its trigger skips the clash, as intended).
+      const oldId = "00000000-0000-4000-8000-0000000000bb";
+      await app.query(`insert into auth.users (id, email) values ($1, 'newcomer@example.org')`, [oldId]);
+      await app.query(`insert into public.watchlist (user_id, ticker) values ($1, 'MSFT')`, [oldId]);
+      report = await backfill();
+      assert.ok(report.ok, JSON.stringify(report.checks.filter((c) => !c.ok)));
+      assert.equal(await num(app, `select count(*) from public.users where lower(email) = 'newcomer@example.org'`), 1);
+      assert.equal(step("users").skipped["this email already has an account (kept as one account)"], 1);
+      assert.equal(await num(app, `select count(*) from public.watchlists where user_id = $1 and cik = 789019`, [fresh.user.id]), 1, "their old watchlist follows them");
     });
 
     /* ---------------------------------------------------------- switch-over */
@@ -811,6 +923,27 @@ async function main() {
       assert.deepEqual([saved.n, saved.steps], ["2", "9"], "the full report is kept with each recorded run");
     });
 
+    await test("a followed ticker that the SEC gives to another company moves the follow, and the copy still runs", async () => {
+      // CPLMF now belongs to a different company. The follow keeps its link code, so the old row has to let go of it.
+      await site.query(`update ticker_follows set unsubscribed_at = null where id = 7`); // (an earlier test opted this follow out)
+      const moved = fixture.tickers.map((t) => (t.ticker === "CPLMF" ? { ...t, cik: 9000006, name: "No Exchange Holdings", isPrimary: false } : { ...t }));
+      await app.query("begin");
+      await loadCompanies(app, moved);
+      await app.query("commit");
+      report = await backfill({ cutover: true, afterCutover: true });
+      assert.ok(report.ok, JSON.stringify(report.checks.filter((c) => !c.ok)));
+      const m = await subs();
+      const old = m.get("email|follower@example.org|9000003")!;
+      assert.equal(old.status, "unsubscribed");
+      assert.ok((old.legacy as Record<string, unknown>).ticker_moved_to_another_company_at);
+      const now = m.get("email|follower@example.org|9000006")!;
+      assert.deepEqual([now.status, now.unsubscribe_token], ["active", TOK("follow7")]);
+      assert.deepEqual(((await peekUnsubscribe(app, TOK("follow7")))?.matched ?? []).map((x) => x.cik), [9000006], "the emailed link follows the ticker");
+      assert.ok(step("subscriptions").notes.join(" ").includes("1 follows moved with their ticker"));
+      const again = await backfill({ cutover: true, afterCutover: true });
+      assert.ok(again.ok, "and the run after that is clean too");
+    });
+
     /* ------------------------------------------------------------- security */
     const as = async <T>(role: "anon" | "authenticated", user: string | null, fn: () => Promise<T>): Promise<T> => {
       await app.query("begin");
@@ -843,7 +976,8 @@ async function main() {
       await as("authenticated", U1, async () => {
         assert.deepEqual(await rowsOf(app, `select email from public.users`), [{ email: "alice@example.org" }]);
         assert.equal(await num(app, `select count(*) from public.watchlists`), 1);
-        assert.deepEqual(await rowsOf(app, `select address, status from public.alert_subscriptions`), [{ address: "alice@example.org", status: "active" }]);
+        const own = await rowsOf<{ address: string }>(app, `select address, status from public.alert_subscriptions`);
+        assert.ok(own.length >= 1 && own.every((x) => x.address === "alice@example.org"), "only her own rows, however many she has");
       });
       for (const col of ["unsubscribe_token", "confirm_token", "legacy_token", "consent_ip", "consent_text", "legacy"]) {
         await as("authenticated", U1, () => assert.rejects(app.query(`select ${col} from public.alert_subscriptions`), /permission denied/, col));
