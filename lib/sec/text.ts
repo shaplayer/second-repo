@@ -33,8 +33,8 @@ function codePoint(n: number): string {
 /** "&amp;", "&#8217;", "&#x2019;", "&rsquo;" -> the character. Unknown names are left as written. */
 export function decodeEntities(s: string): string {
   return s
-    .replace(/&#(\d{1,7});/g, (_, n) => codePoint(Number(n)))
-    .replace(/&#x([0-9a-f]{1,6});/gi, (_, n) => codePoint(parseInt(n, 16)))
+    .replace(/&#(\d{1,12});/g, (_, n) => codePoint(Number(n)))
+    .replace(/&#x([0-9a-f]{1,10});/gi, (_, n) => codePoint(parseInt(n, 16)))
     .replace(/&([a-z][a-z0-9]{1,10});/gi, (m, n: string) => NAMED[n] ?? NAMED[n.toLowerCase()] ?? m);
 }
 

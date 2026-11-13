@@ -12,7 +12,11 @@ type Kind = "symbol-info" | "advanced-chart" | "mini-symbol-overview";
  * If the widget does not load (blocked script, offline), the box says so and the rest of the page
  * keeps working.
  */
-export function TradingViewWidget({ kind, symbol, height, label }: { kind: Kind; symbol: string; height: number; label: string }) {
+export function TradingViewWidget({ kind, symbol, height, label, quiet = false }: {
+  kind: Kind; symbol: string; height: number; label: string;
+  /** When several widgets sit together, only one needs to say the chart is unavailable. */
+  quiet?: boolean;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
 
@@ -45,6 +49,7 @@ export function TradingViewWidget({ kind, symbol, height, label }: { kind: Kind;
     };
   }, [kind, symbol, height]);
 
+  if (failed && quiet) return null;
   if (failed) {
     return (
       <div role="status" className="flex flex-col items-center justify-center gap-1 rounded-2xl bg-inset px-4 text-center" style={{ minHeight: Math.min(height, 180) }}>

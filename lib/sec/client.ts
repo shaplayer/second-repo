@@ -172,7 +172,12 @@ export function createSecClient(opts: SecClientOptions = {}): SecClient {
         const location = res.headers.get("location");
         await res.body?.cancel().catch(() => {});
         if (!location || hop >= MAX_REDIRECTS) throw new SecHttpError(res.status, url, `The SEC redirected ${url} too many times or to nowhere`);
-        target = assertSecUrl(new URL(location, target).toString()).toString();
+        try {
+          target = assertSecUrl(new URL(location, target).toString()).toString();
+        } catch {
+          // Not retried: asking again would get the same answer.
+          throw new SecHttpError(res.status, url, `The SEC redirected ${url} to ${location}, which is not an SEC address; not followed`);
+        }
         continue;
       }
       return res;

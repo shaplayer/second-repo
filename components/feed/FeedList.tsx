@@ -341,7 +341,7 @@ export function FeedList(props: FeedListProps) {
                     </span>
                   )}
                 </div>
-                {it.cik !== null && (
+                {it.cik !== null && !hideTicker && (
                   followed ? (
                     <span className="btn btn-soft cursor-default">Alerts on ✓</span>
                   ) : (

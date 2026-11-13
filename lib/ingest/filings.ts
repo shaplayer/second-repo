@@ -30,6 +30,13 @@ function rolePreference(form: string): CurrentEntry["role"][] {
 
 type Known = { exchange: string | null; ticker: string | null };
 
+/** "2026-11-04" and a day that exists: one impossible date must not sink a whole page of filings. */
+function isRealDate(d: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return false;
+  const t = Date.parse(`${d}T00:00:00Z`);
+  return Number.isFinite(t) && new Date(t).toISOString().startsWith(d);
+}
+
 /** One entry per filing: the party the filing is about, or nothing when that party is not on this page. */
 function chooseEntries(entries: CurrentEntry[], known: Map<number, Known>): CurrentEntry[] {
   const byAccession = new Map<string, CurrentEntry[]>();
@@ -114,7 +121,7 @@ export async function pollCurrentFilings(
           form: e.form,
           items: e.items,
           accepted_at: e.acceptedAt,
-          filed_date: /^\d{4}-\d{2}-\d{2}$/.test(e.filedDate) ? e.filedDate : newYorkDate(e.acceptedAt),
+          filed_date: isRealDate(e.filedDate) ? e.filedDate : newYorkDate(e.acceptedAt),
           index_url: e.indexUrl,
           category: filingCategory({ form: e.form, items: e.items }, { listed: Boolean(exchange && exchange.trim()) }),
         };

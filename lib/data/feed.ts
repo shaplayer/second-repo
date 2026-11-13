@@ -30,6 +30,8 @@ export type FeedItem = {
   typeLabel: string;
   /** The official form code, for use in brackets only. Null for press releases. */
   formCode: string | null;
+  /** The numbered sections of a "Company news" filing, e.g. ["2.02"]. Empty for everything else. */
+  items: string[];
   /** "SEC.gov", "PR Newswire"... */
   sourceName: string;
   headline: string;
@@ -116,6 +118,7 @@ export function toFeedItem(r: Row): FeedItem {
     category,
     typeLabel: filing ? formLabel(form, { listed: r.listed }) ?? "SEC filing" : PRESS_LABEL,
     formCode: filing ? form : null,
+    items: r.items ?? [],
     sourceName: r.source_name,
     // A summary's headline says what happened; until there is one, the release's own title or the plain name of the filing.
     headline: r.s_headline?.trim() || fallback,
@@ -258,4 +261,23 @@ export async function feedCounts(db: Db, since: Date, cik?: number): Promise<Rec
     out.all += Number(r.n);
   }
   return out;
+}
+
+/**
+ * The original text of an item, where we are allowed to keep it: a press release a company attached
+ * to its filing (public domain), or a release from a source whose terms allow storing the text.
+ * Null otherwise: the page then links to the original and shows no text of its own.
+ */
+export async function getOriginalText(db: Db, id: string): Promise<{ text: string; exhibitUrl: string | null } | null> {
+  const [kind, ...rest] = id.split(":");
+  const ref = rest.join(":");
+  const { rows } =
+    kind === "f"
+      ? await db.query<{ body_text: string | null; url: string }>(
+          `select body_text, url from public.news where accession = $1 and source = 'sec' and body_text is not null order by exhibit limit 1`, [ref])
+      : await db.query<{ body_text: string | null; url: string }>(
+          `select n.body_text, n.url from public.news n join public.news_sources s on s.key = n.source
+            where n.id = $1 and s.can_store_body and n.body_text is not null`, [/^\d{1,18}$/.test(ref) ? ref : "0"]);
+  const text = rows[0]?.body_text?.trim();
+  return text ? { text, exhibitUrl: kind === "f" ? rows[0].url : null } : null;
 }

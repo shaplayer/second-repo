@@ -2,6 +2,8 @@
  * Keeping what we know about a company up to date from the SEC's own record of it: who it is, what
  * it has filed lately, and (for the health check) its financial numbers. Safe to run again.
  */
+import type { Client } from "pg";
+import { saveSnapshot, scoreCompany, type Fundamentals } from "../health";
 import { baseForm, filingCategory, isCollectedForm } from "../plain";
 import { SecHttpError, type SecClient } from "../sec/client";
 import { newYorkDate } from "../sec/current-feed";
@@ -119,8 +121,8 @@ export async function refreshCompanyProfile(db: Db, sec: SecClient, cik: number,
   await db.query(`update public.companies set profile_checked_at = now() where cik = $1`, [cik]);
 }
 
-/** What lib/health provides. Passed in by tests; the worker uses the real module. */
-export type HealthDeps<F = unknown> = {
+/** What lib/health provides. Tests may pass their own; the worker uses the real module. */
+export type HealthDeps<F = Fundamentals> = {
   scoreCompany: (
     facts: unknown,
     profile: { sic: string | null; isEmergingGrowth: boolean | null },
@@ -129,29 +131,22 @@ export type HealthDeps<F = unknown> = {
   saveSnapshot: (client: Db, cik: number, f: F) => Promise<void>;
 };
 
-async function loadHealth(): Promise<HealthDeps> {
-  // Loaded when first needed, by a path the compiler does not follow, because lib/health is being
-  // written in a separate change and this file must build and be testable without it.
-  const path = "../health";
-  const mod = (await import(path)) as Partial<HealthDeps> & { default?: Partial<HealthDeps> };
-  const scoreCompany = mod.scoreCompany ?? mod.default?.scoreCompany;
-  const saveSnapshot = mod.saveSnapshot ?? mod.default?.saveSnapshot;
-  if (typeof scoreCompany !== "function" || typeof saveSnapshot !== "function") {
-    throw new Error("lib/health does not export scoreCompany and saveSnapshot");
-  }
-  return { scoreCompany, saveSnapshot };
-}
+const realHealth: HealthDeps<Fundamentals> = {
+  scoreCompany,
+  // saveSnapshot only ever calls query(), which every kind of handle has.
+  saveSnapshot: (client, cik, f) => saveSnapshot(client as unknown as Client, cik, f),
+};
 
 /**
  * Reads the company's financial numbers from the SEC and stores tonight's health check.
  * The SEC's data only: no price is ever fetched or stored.
  */
-export async function refreshCompanyHealth(
+export async function refreshCompanyHealth<F = Fundamentals>(
   db: Db,
   sec: SecClient,
   cik: number,
   opts: { today: string; growthRules: boolean },
-  deps?: HealthDeps,
+  deps?: HealthDeps<F>,
 ): Promise<void> {
   const { rows } = await db.query<{ sic: string | null; is_emerging_growth: boolean | null }>(
     `select sic, is_emerging_growth from public.companies where cik = $1`,
@@ -160,8 +155,7 @@ export async function refreshCompanyHealth(
   if (!rows[0]) throw new Error(`Company ${cik} is not in the companies table`);
   const checked = () => db.query(`update public.companies set facts_checked_at = now() where cik = $1`, [cik]);
 
-  // Before anything is asked of the SEC or written: a missing scorer must not mark companies as checked.
-  const health = deps ?? (await loadHealth());
+  const health = deps ?? (realHealth as unknown as HealthDeps<F>);
 
   let facts: unknown;
   try {
