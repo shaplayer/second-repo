@@ -248,13 +248,19 @@ export function AddStock() {
 }
 
 /** A switch on the settings page that saves as soon as it is pressed. */
-export function SettingSwitch({ label, on, body, onLabel = "On", offLabel = "Off" }: { label: string; on: boolean; body: (next: boolean) => Record<string, unknown>; onLabel?: string; offLabel?: string }) {
+export function SettingSwitch({ label, on, setting, onLabel = "On", offLabel = "Off" }: {
+  label: string; on: boolean;
+  /** "picks" for the free pick list, otherwise the kind of news (press, earnings, …). */
+  setting: string;
+  onLabel?: string; offLabel?: string;
+}) {
   const router = useRouter();
+  const body = (next: boolean) => (setting === "picks" ? { picks: next } : { category: setting, on: next });
   const [value, setValue] = useState(on);
   const [busy, setBusy] = useState(false);
   return (
-    <button type="button" role="switch" aria-checked={value} aria-label={label} disabled={busy}
-      className={`h-10 min-w-[72px] rounded-full px-4 text-[13px] font-extrabold ${value ? "border-0 bg-ink text-white" : "border border-dashed border-[#b8c6be] bg-white text-muted"}`}
+    <button type="button" role="switch" aria-checked={value} aria-label={label} disabled={busy} title={value ? onLabel : offLabel}
+      className={`flex h-8 w-[52px] flex-none rounded-2xl border-0 p-[3px] ${value ? "justify-end bg-brand" : "justify-start bg-[#cfd8d3]"}`}
       onClick={async () => {
         setBusy(true);
         const r = await post("/api/settings", body(!value));
@@ -264,7 +270,7 @@ export function SettingSwitch({ label, on, body, onLabel = "On", offLabel = "Off
         }
         setBusy(false);
       }}>
-      {value ? onLabel : offLabel}
+      <span className="block h-[26px] w-[26px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.2)]" />
     </button>
   );
 }
