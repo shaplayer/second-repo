@@ -42,6 +42,8 @@ export type FeedItem = {
   summary: FeedSummary | null;
   /** False when the source does not let us summarize its text: show the headline and the link only. */
   canSummarize: boolean;
+  /** This item's exact place in the feed. Pass it as `before` or `after` to page from here. */
+  cursor: string;
 };
 
 export type FeedQuery = {
@@ -66,6 +68,8 @@ type Row = {
   kind: "f" | "n";
   ref: string;
   at: string;
+  /** The same time as text, to the microsecond: paging by a rounded time would skip items posted in the same millisecond. */
+  at_exact: string;
   cik: string | null;
   ticker: string | null;
   company: string | null;
@@ -83,14 +87,14 @@ type Row = {
   s_bullets: string[] | null;
 };
 
-/** A position in the feed: "<ISO time>|<kind>|<ref>". */
-export const cursorOf = (it: Pick<FeedItem, "publishedAt" | "id">) => `${it.publishedAt}|${it.id.replace(":", "|")}`;
+/** A position in the feed: "<time to the microsecond>|<kind>|<ref>". */
+export const cursorOf = (it: Pick<FeedItem, "cursor">) => it.cursor;
 
 function parseCursor(cursor: string | undefined): { at: string; key: string } | null {
   if (!cursor) return null;
   const [at, kind, ...rest] = cursor.split("|");
   const ref = rest.join("|");
-  if (!at || Number.isNaN(Date.parse(at)) || (kind !== "f" && kind !== "n") || !ref) return null;
+  if (!at || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?Z$/.test(at) || (kind !== "f" && kind !== "n") || !ref) return null;
   return { at, key: `${kind}:${ref}` };
 }
 
@@ -120,13 +124,15 @@ export function toFeedItem(r: Row): FeedItem {
     originalUrl: r.original_url,
     summary,
     canSummarize: r.can_summarize,
+    cursor: `${r.at_exact}|${r.kind}|${r.ref}`,
   };
 }
 
-const FILING_COLS = `'f' as kind, f.accession as ref, f.accepted_at as at, f.cik::text as cik, c.ticker, c.name as company,
+const EXACT = (col: string) => `to_char(${col} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+const FILING_COLS = `'f' as kind, f.accession as ref, f.accepted_at as at, ${EXACT("f.accepted_at")} as at_exact, f.cik::text as cik, c.ticker, c.name as company,
   (c.exchange is not null) as listed, f.form, f.items, f.category, f.title as release_title, f.primary_url as original_url,
   'SEC.gov' as source_name, true as can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one, s.bullets as s_bullets`;
-const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, n.cik::text as cik, c.ticker, c.name as company,
+const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EXACT("n.published_at")} as at_exact, n.cik::text as cik, c.ticker, c.name as company,
   (c.exchange is not null) as listed, null::text as form, null::text[] as items, 'press' as category, n.title as release_title,
   n.url as original_url, src.name as source_name, src.can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one,
   s.bullets as s_bullets`;
@@ -168,20 +174,19 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
   }
   const before = parseCursor(q.before);
   const after = parseCursor(q.after);
-  let outer = "";
   if (before) {
     const at = p(before.at);
     const key = p(before.key);
-    fWhere.push(`f.accepted_at <= ${at}`);
-    nWhere.push(`n.published_at <= ${at}`);
-    outer += ` and (x.at, x.kind || ':' || x.ref) < (${at}::timestamptz, ${key})`;
+    // The range test lets the index do the work; the pair test is the exact position (and must be applied before
+    // each half is cut to the page size, or the item the cursor names would use up one of the places).
+    fWhere.push(`f.accepted_at <= ${at}::timestamptz and (f.accepted_at, 'f:' || f.accession) < (${at}::timestamptz, ${key})`);
+    nWhere.push(`n.published_at <= ${at}::timestamptz and (n.published_at, 'n:' || n.id::text) < (${at}::timestamptz, ${key})`);
   }
   if (after) {
     const at = p(after.at);
     const key = p(after.key);
-    fWhere.push(`f.accepted_at >= ${at}`);
-    nWhere.push(`n.published_at >= ${at}`);
-    outer += ` and (x.at, x.kind || ':' || x.ref) > (${at}::timestamptz, ${key})`;
+    fWhere.push(`f.accepted_at >= ${at}::timestamptz and (f.accepted_at, 'f:' || f.accession) > (${at}::timestamptz, ${key})`);
+    nWhere.push(`n.published_at >= ${at}::timestamptz and (n.published_at, 'n:' || n.id::text) > (${at}::timestamptz, ${key})`);
   }
   const n = p(limit + 1);
   // "Newer than" pages are read oldest-first so none are skipped, then shown newest-first.
@@ -200,7 +205,7 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
   }
   if (!halves.length) return { items: [], next: null };
   const { rows } = await db.query<Row>(
-    `select x.* from (${halves.join(" union all ")}) x where true ${outer}
+    `select x.* from (${halves.join(" union all ")}) x
       order by x.at ${dir}, (x.kind || ':' || x.ref) ${dir} limit ${n}`,
     params,
   );

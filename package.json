@@ -9,7 +9,7 @@
     "lint": "tsc --noEmit",
     "ingest": "tsx scripts/ingest.ts",
     "ingest:once": "tsx scripts/ingest.ts --once",
-    "test": "tsx scripts/test-parsers.ts && tsx scripts/test-unit.ts && tsx scripts/test-db.ts --if-available",
+    "test": "tsx scripts/test-parsers.ts && tsx scripts/test-unit.ts && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available",
     "test:db": "tsx scripts/test-db.ts",
     "sms:broadcast": "tsx scripts/sms-broadcast.ts",
     "db:init": "tsx scripts/db-init.ts",
