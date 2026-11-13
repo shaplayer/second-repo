@@ -6,9 +6,9 @@ import type { CheckKey, RuleSet } from "./types";
 
 export const CHECK_TEXT: Record<CheckKey, { label: string; hint: string }> = {
   salesGrew: { label: "Sales grew", hint: "Compared with the same quarter a year ago" },
-  madeProfit: { label: "Made a profit", hint: "Earned more than it spent in the quarter" },
-  profitGrew: { label: "Profit grew", hint: "Compared with the same quarter a year ago" },
-  marginHeld: { label: "Profit margin held up", hint: "Kept about the same share of each sales dollar as a year ago" },
+  madeProfit: { label: "Made a profit", hint: "Its business earned more than it cost to run in the quarter" },
+  profitGrew: { label: "Profit grew", hint: "Profit from its business, compared with the same quarter a year ago" },
+  marginHeld: { label: "Profit margin held up", hint: "Kept about the same share of each sales dollar as profit as a year ago" },
   closerToProfit: { label: "Got closer to profit", hint: "Lost a smaller share of sales than a year ago, or made an operating profit" },
   yearCash: { label: "A year of cash or more", hint: "Cash and investments cover at least 12 months of spending" },
   twoYearsCash: { label: "Two years of cash or more", hint: "Cash and investments cover at least 24 months of spending" },
@@ -31,6 +31,8 @@ export const NO_SCORE = {
 } as const;
 
 export const NOTE_NO_SALES = "No sales yet, so the two sales checks don't count.";
+/** Standard rules, when the company's filings have no profit-from-operations line (banks and insurers, mostly). */
+export const NOTE_BOTTOM_LINE = "This company doesn't report a separate profit from its business, so its overall profit is used.";
 
 /** Shown wherever a verdict is shown. */
 export const NOT_ADVICE = "Based on SEC financial data only. Not investment advice.";

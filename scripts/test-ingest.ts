@@ -596,6 +596,12 @@ async function parserTests() {
       title(`<p>Exhibit 99.1</p><p>&nbsp;</p><p>General Meeting of November 12, 2026: Quorum Not Met</p><p>&nbsp;</p><p>Notice of a second General Meeting on November 27, 2026</p>`, "Northwind SA"),
       "General Meeting of November 12, 2026: Quorum Not Met",
     );
+    // Letterhead listing a group's companies, above the headline.
+    assert.equal(
+      title(`<p>The Halcyon Insurance Company n The Halcyon Indemnity Company The Halcyon Casualty Company n The Halcyon Specialty Underwriters Insurance Company</p>
+        <p>&nbsp;</p><p>Halcyon Financial Corporation Declares Regular Quarterly Cash Dividend</p>`, "HALCYON FINANCIAL CORP"),
+      "Halcyon Financial Corporation Declares Regular Quarterly Cash Dividend",
+    );
     assert.equal(title(`<p>Exhibit 99.1</p><p>November 13, 2026</p><p>Dear Shareholder:</p><p>As we approach the holiday season we are grateful.</p><p>A Strong Year for Our Bank</p>`, "X Corp"), null);
     assert.equal(
       title(`<p>Exhibit 99.1</p><p>HALCYON CORPORATION</p><p>INDEX TO CONSOLIDATED FINANCIAL STATEMENTS</p><p>Unaudited Condensed Consolidated Financial Statements</p><p>Page</p>
@@ -851,6 +857,8 @@ async function parserTests() {
       "Rosen Law Firm Encourages Acme Corp Investors to Inquire About Securities Investigation",
       "Levi & Korsinsky Reminds Acme Shareholders of the December 1 Deadline",
       "INVESTOR ALERT: Acme Corp",
+      "Acme Insurance (ACME) Reveals Prior Financial Statements Unreliable, Stock Tumbles 15% – Investigation Opened by Hagens Berman",
+      "Kirby McInerney LLP Announces Investigation of Acme Corp",
     ]) assert.equal(isLawFirmNotice(t), true, t);
     for (const t of [
       "Acme Corp Reports Third Quarter 2026 Results", "Acme Corp Reminds Shareholders to Vote at the Annual Meeting",

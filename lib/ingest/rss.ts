@@ -80,8 +80,17 @@ const LAW_NOTICE_STRONG =
 const LAW_NOTICE_CALL = /\b(?:encourages?|encouraged|urges?|reminds?|notifies|alerts?)\b/i;
 const LAW_NOTICE_WHO = /\b(?:investors?|shareholders?|stockholders?)\b/i;
 const LAW_NOTICE_WHY = /\b(?:loss(?:es)?|deadline|lawsuit|investigation|inquire|contact (?:the firm|us|counsel)|to contact|legal rights)\b/i;
+// The firms that publish most of these, and the two things only they put in a headline about someone else's
+// company: an "investigation" they have opened, and how far the stock fell (we show no price moves anywhere).
+const LAW_FIRMS =
+  /\b(?:Hagens Berman|Rosen Law|Pomerantz|Levi & Korsinsky|Bronstein,? Gewirtz|Faruqi & Faruqi|Glancy Prongay|Robbins Geller|Robbins LLP|Bragar Eagel|Kessler Topaz|Schall Law|Johnson Fistel|Halper Sadeh|Kirby McInerney|Bernstein Liebhard|Berger Montague|Gross Law|Kahn Swick|Howard G\. Smith|Frank R\. Cruz|Scott\+Scott|Labaton|DJS Law|Edelson Lechtzin|Lowey Dannenberg|Holzer & Holzer|Grabar Law|Wolf Haldenstein|Block & Leviton|Portnoy Law|Ademi|Monteverde|Brodsky & Smith|Rigrodsky|Weiss Law|Kaskela|Bleichmar|Saxena White|Gainey McKenna|Law Offices of)\b/i;
+const LAW_NOTICE_INVESTIGATION = /\binvestigation\b.{0,40}\b(?:opened|launched|announced|initiated|commenced|underway|continues)\b|\b(?:opens|launches|announces|initiates|commences|continues)\b.{0,40}\binvestigation\b/i;
+const PRICE_MOVE = /\b(?:stock|shares?)\s+(?:tumbles?|drops?|plunges?|falls?|sinks?|crash(?:es)?|plummets?|slides?|dives?|craters?)\b/i;
 export function isLawFirmNotice(title: string): boolean {
-  return LAW_NOTICE_STRONG.test(title) || (LAW_NOTICE_CALL.test(title) && LAW_NOTICE_WHO.test(title) && LAW_NOTICE_WHY.test(title));
+  return (
+    LAW_NOTICE_STRONG.test(title) || LAW_FIRMS.test(title) || LAW_NOTICE_INVESTIGATION.test(title) || PRICE_MOVE.test(title) ||
+    (LAW_NOTICE_CALL.test(title) && LAW_NOTICE_WHO.test(title) && LAW_NOTICE_WHY.test(title))
+  );
 }
 
 /**

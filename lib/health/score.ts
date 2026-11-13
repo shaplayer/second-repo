@@ -26,7 +26,7 @@ import {
   type Series,
   type Sourced,
 } from "./facts";
-import { CHECK_TEXT, NO_SCORE, NOTE_NO_SALES, RULE_SET_CHECKS } from "./labels";
+import { CHECK_TEXT, NO_SCORE, NOTE_BOTTOM_LINE, NOTE_NO_SALES, RULE_SET_CHECKS } from "./labels";
 import type { CheckKey, CompanyProfile, Fundamentals, HealthCheck, RuleSet, ScoreOptions, Verdict } from "./types";
 
 export const REVENUE_TAGS = [
@@ -227,23 +227,35 @@ export function readMeasures(source: FactSource): Measures {
   };
 }
 
-/** The standard rule set: four checks on sales and profit. */
-export function standardRows(m: Measures, four: readonly Point[], used: (filed: string) => void): Rows {
+/**
+ * The standard rule set: four checks on sales and profit.
+ *
+ * "Profit" is profit from operations: what the business earned from selling its products, before one-off
+ * accounting gains and losses (owner's decision, Nov 13, 2026: a company that lost money running its
+ * business but booked a paper gain on its warrants was showing as profitable). Some companies, banks
+ * and insurers among them, do not report that line; for a quarter without it the bottom-line profit
+ * is used, and the year-ago comparison always uses the same kind of profit as the quarter it is compared with.
+ */
+export function standardRows(m: Measures, four: readonly Point[], used: (filed: string) => void): Rows & { usedBottomLine: boolean } {
   const rows = { salesGrew: [] as Answer[], madeProfit: [] as Answer[], profitGrew: [] as Answer[], marginHeld: [] as Answer[] };
+  let usedBottomLine = false;
   for (const quarter of four) {
     const sales = m.revenue.series.at.get(quarter.end) ?? null;
     const salesBefore = sales ? yearAgo(m.revenue.series, quarter.end) : null;
-    const profitBefore = yearAgo(m.netIncome.series, quarter.end);
-    for (const p of [quarter, sales, salesBefore, profitBefore]) if (p) used(p.filed);
+    const operating = m.operatingIncome.series.at.get(quarter.end) ?? null;
+    const profit = operating ?? quarter;
+    if (!operating) usedBottomLine = true;
+    const profitBefore = yearAgo(operating ? m.operatingIncome.series : m.netIncome.series, quarter.end);
+    for (const p of [quarter, sales, salesBefore, profit, profitBefore]) if (p) used(p.filed);
 
     rows.salesGrew.push(sales && salesBefore ? sales.value > salesBefore.value : null);
-    rows.madeProfit.push(quarter.value > 0);
-    rows.profitGrew.push(profitBefore ? quarter.value > profitBefore.value : null);
-    const margin = sales && sales.value !== 0 ? quarter.value / sales.value : null;
+    rows.madeProfit.push(profit.value > 0);
+    rows.profitGrew.push(profitBefore ? profit.value > profitBefore.value : null);
+    const margin = sales && sales.value !== 0 ? profit.value / sales.value : null;
     const marginBefore = salesBefore && salesBefore.value !== 0 && profitBefore ? profitBefore.value / salesBefore.value : null;
     rows.marginHeld.push(margin !== null && marginBefore !== null ? margin >= marginBefore - 0.01 : null);
   }
-  return rows;
+  return { ...rows, usedBottomLine };
 }
 
 export type Totals = { revenue: Sourced | null; netIncome: Sourced | null; operatingIncome: Sourced | null };
@@ -421,7 +433,9 @@ export function scoreCompany(facts: unknown, profile: CompanyProfile, opts: Scor
         notes.push(NOTE_NO_SALES);
       }
     } else {
-      rows = standardRows(m, lastFour, used);
+      const standard = standardRows(m, lastFour, used);
+      rows = standard;
+      if (standard.usedBottomLine) notes.push(NOTE_BOTTOM_LINE);
     }
 
     const checks = RULE_SET_CHECKS[ruleSet].map((key) => ({

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FeedItem, FeedSummary } from "@/lib/data/feed";
+import { groupInsiderTrades, insiderGroupText } from "@/lib/feed-groups";
 import { CATEGORY_LABEL, type Category } from "@/lib/plain";
 import { TypeBadge } from "@/components/ui/Badges";
 import { PauseIcon, PlayIcon } from "@/components/ui/Icons";
@@ -38,6 +39,8 @@ export type FeedListProps = {
   /** Offer "Load earlier posts" instead of a link away. */
   paged?: boolean;
   textFilter?: boolean;
+  /** Show at most this many rows (a burst of insider trades from one company counts as one row). */
+  rows?: number;
 };
 
 type SummaryView =
@@ -49,7 +52,7 @@ const tickerOf = (it: FeedItem) => (it.ticker ? `$${it.ticker}` : it.company);
 const stockHref = (it: FeedItem) => (it.ticker ? `/stock/${encodeURIComponent(it.ticker)}` : it.cik ? `/stock/CIK${it.cik}` : null);
 
 /** The AI summary (or the wait for it) that opens under a headline, in place. */
-function SummaryPanel({ item, view }: { item: FeedItem; view: SummaryView | undefined }) {
+function SummaryPanel({ item, view, nested = false }: { item: FeedItem; view: SummaryView | undefined; nested?: boolean }) {
   const stock = stockHref(item);
   const links = (
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 pt-1">
@@ -62,7 +65,7 @@ function SummaryPanel({ item, view }: { item: FeedItem; view: SummaryView | unde
     </div>
   );
   return (
-    <div className="card-mint mt-3 flex flex-col gap-2.5 rounded-[20px] px-5 py-[18px] md:ml-[110px]" role="region" aria-label="Summary">
+    <div className={`card-mint mt-3 flex flex-col gap-2.5 rounded-[20px] px-5 py-[18px] ${nested ? "" : "md:ml-[110px]"}`} role="region" aria-label="Summary">
       {view?.status === "ready" ? (
         <>
           <span className="eyebrow">{view.summary.kind === "ai" ? "AI summary · In one sentence" : "In one sentence"}</span>
@@ -99,6 +102,7 @@ export function FeedList(props: FeedListProps) {
   const [paused, setPaused] = useState(false);
   const [fresh, setFresh] = useState<FeedItem[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [views, setViews] = useState<Record<string, SummaryView>>({});
   const [following, setFollowing] = useState<Set<number>>(new Set(props.following ?? []));
   const [asking, setAsking] = useState<string | null>(null);
@@ -249,6 +253,67 @@ export function FeedList(props: FeedListProps) {
     );
   };
 
+  // One post. `nested` is a post inside an opened burst of insider trades: the company and its button are on the burst's own row.
+  const row = (it: FeedItem, nested: boolean) => {
+          const isOpen = open === it.id;
+    const stock = stockHref(it);
+    const view = views[it.id] ?? (it.summary ? { status: "ready" as const, summary: it.summary, headline: it.headline } : undefined);
+    const followed = it.cik !== null && following.has(it.cik);
+    return (
+      <article key={it.id} className={`border-t border-line-soft px-4 py-4 md:px-6 ${isOpen ? "bg-[#fbfdfc]" : ""}`}>
+        <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2">
+          {!hideTicker && !nested && (
+            <div className="flex flex-none items-baseline gap-2 md:w-[92px] md:flex-col md:items-start md:gap-0.5">
+              {stock ? (
+                <Link href={stock} className="max-w-[160px] truncate text-lg font-extrabold text-ink no-underline hover:text-link md:max-w-[92px]">{tickerOf(it)}</Link>
+              ) : (
+                <span className="max-w-[160px] truncate text-base font-extrabold md:max-w-[92px]">{tickerOf(it)}</span>
+              )}
+              <span className="num text-xs text-muted">{clockET(it.publishedAt)}</span>
+            </div>
+          )}
+          <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-1">
+            <span className="text-[13px] text-muted">
+              <TypeBadge category={it.category} label={it.typeLabel} className="mr-1.5" />
+              {it.sourceName} · <TimeAgo iso={it.publishedAt} suffix />
+            </span>
+            <button type="button" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : it.id)}
+              className="flex w-full items-start justify-between gap-3 border-0 bg-transparent p-0 text-left text-ink">
+              <span className="text-[17px] font-extrabold leading-[1.4]">{view?.status === "ready" ? view.headline : it.headline}</span>
+              <span aria-hidden="true" className={`flex-none text-xl leading-none text-muted transition-transform ${isOpen ? "rotate-180" : ""}`}>⌄</span>
+            </button>
+            {!isOpen && it.summary && it.summary.oneSentence !== it.headline && (
+              <span className="text-[15px] leading-normal text-ink-2">
+                {it.summary.kind === "ai" && <span className="mr-1.5 rounded border border-[#cfd8d3] px-[5px] py-px text-[11px] font-bold text-muted">AI</span>}
+                {it.summary.oneSentence}
+              </span>
+            )}
+          </div>
+          {it.cik !== null && !hideTicker && !nested && (
+            followed ? (
+              <span className="btn btn-soft cursor-default">Alerts on ✓</span>
+            ) : (
+              <button type="button" onClick={() => follow(it)} aria-expanded={signedIn ? undefined : asking === it.id} className="btn btn-dark">
+                Alert me on {tickerOf(it)}
+              </button>
+            )
+          )}
+        </div>
+        {asking === it.id && !signedIn && it.cik !== null && (
+          <div className="card mt-3 p-4 md:ml-[110px]">
+            <p className="m-0 mb-2 text-[15px] font-bold">Get {tickerOf(it)} news the moment it posts</p>
+            <SignupForm cik={it.cik} ticker={it.ticker} source={`feed:${it.ticker ?? it.cik}`} button={`Alert me on ${tickerOf(it)}`} tone="light" />
+          </div>
+        )}
+        {isOpen && <SummaryPanel item={it} view={view} nested={nested} />}
+      </article>
+    );
+  };
+
+  // A burst of insider trades from one company is one row that opens. The "Insider trades" filter shows every one.
+  const grouped = category === "insider" ? items.map((item) => ({ kind: "item" as const, item })) : groupInsiderTrades(items);
+  const entries = props.rows ? grouped.slice(0, props.rows) : grouped;
+
   return (
     <div className="card-raised overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3 pt-5 md:px-6">
@@ -306,59 +371,57 @@ export function FeedList(props: FeedListProps) {
       )}
 
       <div aria-busy={loading}>
-        {items.map((it) => {
-          const isOpen = open === it.id;
-          const stock = stockHref(it);
-          const view = views[it.id] ?? (it.summary ? { status: "ready" as const, summary: it.summary, headline: it.headline } : undefined);
-          const followed = it.cik !== null && following.has(it.cik);
+        {entries.map((entry) => {
+          if (entry.kind === "item") return row(entry.item, false);
+          const firstItem = entry.items[0];
+          const isOpen = openGroups.has(entry.key);
+          const stock = stockHref(firstItem);
+          const words = insiderGroupText(entry.items);
+          const followed = firstItem.cik !== null && following.has(firstItem.cik);
           return (
-            <article key={it.id} className={`border-t border-line-soft px-4 py-4 md:px-6 ${isOpen ? "bg-[#fbfdfc]" : ""}`}>
-              <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2">
+            <section key={entry.key} aria-label={`${words.headline}${hideTicker ? "" : ` at ${tickerOf(firstItem)}`}`} className={`border-t border-line-soft ${isOpen ? "bg-[#fbfdfc]" : ""}`}>
+              <div className="flex flex-wrap items-center gap-x-[18px] gap-y-2 px-4 py-4 md:px-6">
                 {!hideTicker && (
                   <div className="flex flex-none items-baseline gap-2 md:w-[92px] md:flex-col md:items-start md:gap-0.5">
                     {stock ? (
-                      <Link href={stock} className="max-w-[160px] truncate text-lg font-extrabold text-ink no-underline hover:text-link md:max-w-[92px]">{tickerOf(it)}</Link>
+                      <Link href={stock} className="max-w-[160px] truncate text-lg font-extrabold text-ink no-underline hover:text-link md:max-w-[92px]">{tickerOf(firstItem)}</Link>
                     ) : (
-                      <span className="max-w-[160px] truncate text-base font-extrabold md:max-w-[92px]">{tickerOf(it)}</span>
+                      <span className="max-w-[160px] truncate text-base font-extrabold md:max-w-[92px]">{tickerOf(firstItem)}</span>
                     )}
-                    <span className="num text-xs text-muted">{clockET(it.publishedAt)}</span>
+                    <span className="num text-xs text-muted">{clockET(firstItem.publishedAt)}</span>
                   </div>
                 )}
                 <div className="flex min-w-0 flex-[1_1_380px] flex-col gap-1">
                   <span className="text-[13px] text-muted">
-                    <TypeBadge category={it.category} label={it.typeLabel} className="mr-1.5" />
-                    {it.sourceName} · <TimeAgo iso={it.publishedAt} suffix />
+                    <TypeBadge category="insider" label={`${entry.items.length} insider trades`} className="mr-1.5" />
+                    {firstItem.sourceName} · <TimeAgo iso={firstItem.publishedAt} suffix />
                   </span>
-                  <button type="button" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : it.id)}
+                  <button type="button" aria-expanded={isOpen}
+                    onClick={() => setOpenGroups((g) => { const n = new Set(g); if (n.has(entry.key)) n.delete(entry.key); else n.add(entry.key); return n; })}
                     className="flex w-full items-start justify-between gap-3 border-0 bg-transparent p-0 text-left text-ink">
-                    <span className="text-[17px] font-extrabold leading-[1.4]">{view?.status === "ready" ? view.headline : it.headline}</span>
+                    <span className="text-[17px] font-extrabold leading-[1.4]">{words.headline}</span>
                     <span aria-hidden="true" className={`flex-none text-xl leading-none text-muted transition-transform ${isOpen ? "rotate-180" : ""}`}>⌄</span>
                   </button>
-                  {!isOpen && it.summary && it.summary.oneSentence !== it.headline && (
-                    <span className="text-[15px] leading-normal text-ink-2">
-                      {it.summary.kind === "ai" && <span className="mr-1.5 rounded border border-[#cfd8d3] px-[5px] py-px text-[11px] font-bold text-muted">AI</span>}
-                      {it.summary.oneSentence}
-                    </span>
-                  )}
+                  {!isOpen && <span className="text-[15px] leading-normal text-ink-2">{words.detail}</span>}
                 </div>
-                {it.cik !== null && !hideTicker && (
+                {firstItem.cik !== null && !hideTicker && (
                   followed ? (
                     <span className="btn btn-soft cursor-default">Alerts on ✓</span>
                   ) : (
-                    <button type="button" onClick={() => follow(it)} aria-expanded={signedIn ? undefined : asking === it.id} className="btn btn-dark">
-                      Alert me on {tickerOf(it)}
+                    <button type="button" onClick={() => follow(firstItem)} aria-expanded={signedIn ? undefined : asking === firstItem.id} className="btn btn-dark">
+                      Alert me on {tickerOf(firstItem)}
                     </button>
                   )
                 )}
               </div>
-              {asking === it.id && !signedIn && it.cik !== null && (
-                <div className="card mt-3 p-4 md:ml-[110px]">
-                  <p className="m-0 mb-2 text-[15px] font-bold">Get {tickerOf(it)} news the moment it posts</p>
-                  <SignupForm cik={it.cik} ticker={it.ticker} source={`feed:${it.ticker ?? it.cik}`} button={`Alert me on ${tickerOf(it)}`} tone="light" />
+              {asking === firstItem.id && !signedIn && firstItem.cik !== null && (
+                <div className="card mx-4 mb-4 p-4 md:ml-[134px] md:mr-6">
+                  <p className="m-0 mb-2 text-[15px] font-bold">Get {tickerOf(firstItem)} news the moment it posts</p>
+                  <SignupForm cik={firstItem.cik} ticker={firstItem.ticker} source={`feed:${firstItem.ticker ?? firstItem.cik}`} button={`Alert me on ${tickerOf(firstItem)}`} tone="light" />
                 </div>
               )}
-              {isOpen && <SummaryPanel item={it} view={view} />}
-            </article>
+              {isOpen && <div className={hideTicker ? "" : "md:pl-[110px]"}>{entry.items.map((it) => row(it, true))}</div>}
+            </section>
           );
         })}
       </div>

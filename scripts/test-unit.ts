@@ -13,7 +13,9 @@ import {
   BASIC_SUMMARY_WHY,
   type Candidate,
 } from "../lib/backfill/mapping";
+import type { FeedItem } from "../lib/data/feed";
 import { connectionConfig } from "../lib/db/connect";
+import { groupInsiderTrades, insiderGroupText } from "../lib/feed-groups";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { readMigrations } from "../lib/db/migrate";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
@@ -174,6 +176,35 @@ async function main() {
     assert.equal(checked.rejectUnauthorized, true);
     assert.ok(checked.ca.includes("bigstocks-web"));
     assert.throws(() => connectionConfig("postgres://u:p@db.example.com/x", { DATABASE_SSL_CA: "/no/such/file.crt" } as unknown as NodeJS.ProcessEnv), /could not be read/);
+  });
+
+  await test("insider trades: a burst from one company becomes one row; everything else keeps its place", () => {
+    const post = (id: string, cik: number, category: FeedItem["category"], minutesAgo: number, headline = "Director received 100 shares"): FeedItem => ({
+      id, kind: "filing", cik, ticker: `T${cik}`, company: `Company ${cik}`, category, typeLabel: "x", formCode: null, items: [], sourceName: "SEC.gov",
+      headline, publishedAt: new Date(Date.UTC(2026, 10, 13, 18, 0) - minutesAgo * 60_000).toISOString(), path: `/filing/${id}`, originalUrl: "https://www.sec.gov/x",
+      summary: null, canSummarize: true, cursor: id,
+    });
+    const list = [
+      post("a", 1, "insider", 1, "Director bought 300 shares"),
+      post("b", 1, "insider", 2, "Chief Executive Officer sold 5,000 shares"),
+      post("c", 2, "earnings", 3),
+      post("d", 1, "insider", 4),
+      post("e", 3, "insider", 5),
+      post("f", 1, "insider", 200), // the same company, hours earlier: a separate report, not part of the burst
+      post("g", 1, "news", 201),
+    ];
+    const grouped = groupInsiderTrades(list);
+    assert.deepEqual(grouped.map((e) => (e.kind === "item" ? e.item.id : e.items.map((i) => i.id).join("+"))), ["a+b+d", "c", "e", "f", "g"]);
+    const burst = grouped[0];
+    assert.ok(burst.kind === "insiders");
+    assert.deepEqual(insiderGroupText(burst.items), {
+      headline: "3 insiders reported trades",
+      detail: "1 bought on the open market · 1 sold on the open market · 1 through awards or other transfers. Open to see each one.",
+    });
+    assert.equal(insiderGroupText([list[3], list[3]]).detail, "All through stock awards or other transfers, not open-market trades. Open to see each one.");
+    assert.deepEqual(groupInsiderTrades([]), []);
+    // Nothing is lost or repeated.
+    assert.equal(grouped.reduce((n, e) => n + (e.kind === "item" ? 1 : e.items.length), 0), list.length);
   });
 
   await test("database targets: local is recognised, passwords never appear in the label", () => {

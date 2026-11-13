@@ -64,7 +64,7 @@ export default async function StockPage({ params }: Props) {
   await markViewed(pool, company.cik).catch(() => {});
   const [snapshot, feed, counts, mine, alerts] = await Promise.all([
     getSnapshot(pool, company.cik).catch(() => null),
-    getFeed(pool, { cik: company.cik, limit: 12 }).catch(() => ({ items: [], next: null })),
+    getFeed(pool, { cik: company.cik, limit: 30 }).catch(() => ({ items: [], next: null })),
     feedCounts(pool, new Date(Date.now() - 365 * 86_400_000), company.cik).catch(() => undefined),
     user ? watchlistCiks(pool, user.id).catch(() => [] as number[]) : Promise.resolve([] as number[]),
     user ? alertCiks(pool, user.email).catch(() => [] as number[]) : Promise.resolve([] as number[]),

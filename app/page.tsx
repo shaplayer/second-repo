@@ -34,7 +34,7 @@ export default async function Home() {
   const pool = db();
   const dayAgo = new Date(Date.now() - 86_400_000);
   const [feed, counts, trending, pick, mine, following] = await Promise.all([
-    safe<FeedPage>(() => getFeed(pool, { limit: 12 }), { items: [], next: null }),
+    safe<FeedPage>(() => getFeed(pool, { limit: 60 }), { items: [], next: null }),
     safe(() => feedCounts(pool, dayAgo), undefined),
     safe<Trending[]>(() => trendingCompanies(pool, 6), []),
     safe<StockPick | null>(() => latestFreePick(pool), null),
@@ -164,7 +164,7 @@ export default async function Home() {
         )}
         <FeedList
           initial={feed.value.items} next={feed.value.next} counts={counts.value} filters={[...FILTERS]} signedIn={Boolean(user)} following={following.value}
-          moreHref="/news" moreLabel="See all live news" emptyText="Nothing in this category in the last few minutes."
+          rows={12} moreHref="/news" moreLabel="See all live news" emptyText="Nothing in this category in the last few minutes."
         />
       </section>
     </Shell>

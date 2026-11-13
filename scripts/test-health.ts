@@ -15,7 +15,7 @@ import {
   areConsecutive, bestSeries, dedupeDurations, dedupeInstants, instantAt, liquidFunds, openFacts, quarterlySeries, trailingTwelveMonths,
   yearAgo, yearTolerance,
 } from "../lib/health/facts";
-import { CHECK_TEXT, NO_SCORE, NOT_ADVICE, NOTE_NO_SALES, RULE_SET_CHECKS, saveSnapshot, scoreCompany } from "../lib/health/index";
+import { CHECK_TEXT, NO_SCORE, NOT_ADVICE, NOTE_BOTTOM_LINE, NOTE_NO_SALES, RULE_SET_CHECKS, saveSnapshot, scoreCompany } from "../lib/health/index";
 import type { CheckKey, CompanyProfile, Fundamentals } from "../lib/health/index";
 import {
   NET_INCOME_TAGS, firstReportFiled, isBlankCheck, isFund, lostMoneyFromOperations, readMeasures, shareGrowth, ttmOf, verdictOf,
@@ -468,6 +468,27 @@ async function scoring() {
     const weak = scoreCompany(steady([15, 15, 15, -1]), OPERATING, { today: TODAY, growthRules: false });
     assert.equal(summary(weak), "standard Weak 7/16");
     assert.equal(row(weak, "madeProfit"), "TTTF");
+
+    // "Profit" is profit from operations (owner, Nov 13, 2026). A company whose bottom line is positive only
+    // because of accounting gains, while its business loses money, has not made a profit.
+    const paperGains = company({
+      Revenues: flow(tenQuarters(100, 200)),
+      NetIncomeLoss: flow(tenQuarters(20, 30)),
+      OperatingIncomeLoss: flow(tenQuarters(-10, -40)),
+    });
+    const fooled = scoreCompany(paperGains, OPERATING, { today: TODAY, growthRules: false });
+    assert.deepEqual([row(fooled, "salesGrew"), row(fooled, "madeProfit"), row(fooled, "profitGrew"), row(fooled, "marginHeld")], ["TTTT", "FFFF", "FFFF", "FFFF"]);
+    assert.equal(summary(fooled), "standard Weak 4/16");
+    assert.deepEqual(fooled.health.notes, []);
+    // ... and the other way round: a one-off charge below the line does not hide a business that earns money.
+    const oneOffCharge = company({
+      Revenues: flow(tenQuarters(100, 200)),
+      NetIncomeLoss: flow(tenQuarters(20, -5)),
+      OperatingIncomeLoss: flow(tenQuarters(20, 45)),
+    });
+    assert.equal(row(scoreCompany(oneOffCharge, OPERATING, { today: TODAY, growthRules: false }), "madeProfit"), "TTTT");
+    // A company that reports no profit-from-operations line (a bank): the bottom line is used, and the page says so.
+    assert.deepEqual(strong.health.notes, [NOTE_BOTTOM_LINE]);
   });
 
   await test("the other numbers on the page: quarters, twelve-month totals, cash, newest filing used", () => {
@@ -643,7 +664,7 @@ async function realCompanies() {
     assert.equal(f.cash.quarterlySpend, 14_842_000);
     assert.equal(Math.round(Number(f.cash.months) * 10) / 10, 48.6);
     assert.equal(f.sourceFiled, "2026-10-27");
-    assert.equal(summary(scoreFixture("beta-bionics", false)), "standard Mixed 9/16");
+    assert.equal(summary(scoreFixture("beta-bionics", false)), "standard Weak 7/16");
   });
 
   await test("i-80 Gold: growth rules, Mixed; its first reports were on a foreign-issuer form (correction 8)", () => {
@@ -660,8 +681,8 @@ async function realCompanies() {
     assert.deepEqual(rows(f), { salesGrew: "TFTT", closerToProfit: "TFTF", yearCash: "FTFF", twoYearsCash: "FFFF", fewNewShares: "FFFF" });
     assert.equal(f.quarters.find((q) => q.end === "2025-12-31")?.netIncome, -2_543_802, "not the full-year loss of 8,330,000 the annual report tags as the quarter");
     const standard = scoreFixture("t-stamp", false);
-    assert.equal(summary(standard), "standard Weak 7/16");
-    assert.deepEqual(rows(standard), { salesGrew: "TFTT", madeProfit: "FFFF", profitGrew: "FTFF", marginHeld: "TTTF" });
+    assert.equal(summary(standard), "standard Weak 6/16");
+    assert.deepEqual(rows(standard), { salesGrew: "TFTT", madeProfit: "FFFF", profitGrew: "TFFF", marginHeld: "TFTF" });
   });
 
   await test("Absci: growth rules, Weak, no sales yet; cash is not counted twice (correction 2)", () => {
@@ -703,8 +724,8 @@ async function realCompanies() {
     assert.equal(summary(f), "growth Mixed 8/12");
     assert.deepEqual(rows(f), { salesGrew: "----", closerToProfit: "----", yearCash: "TTTT", twoYearsCash: "TTTT", fewNewShares: "FFFF" });
     const standard = scoreFixture("imagenebio", false);
-    assert.equal(summary(standard), "standard Weak 1/9");
-    assert.deepEqual(rows(standard), { salesGrew: "F---", madeProfit: "FFFF", profitGrew: "FFFT", marginHeld: "----" });
+    assert.equal(summary(standard), "standard Weak 1/8");
+    assert.deepEqual(rows(standard), { salesGrew: "F---", madeProfit: "FFFF", profitGrew: "-FFT", marginHeld: "----" });
   });
 
   await test("Werewolf: its collaboration revenue counts as sales (correction 10)", () => {
@@ -827,7 +848,7 @@ async function database() {
       await saveSnapshot(db, cik, standard);
       saved = await read(cik);
       assert.equal(saved.length, 1, "same company, same day: the row is replaced");
-      assert.deepEqual([saved[0].verdict, saved[0].rule_set, saved[0].score], ["Mixed", "standard", standard.health]);
+      assert.deepEqual([saved[0].verdict, saved[0].rule_set, saved[0].score], ["Weak", "standard", standard.health]);
 
       await saveSnapshot(db, cik, scoreCompany(facts, profile, { today: "2026-11-11", growthRules: false }));
       assert.deepEqual((await read(cik)).map((r) => r.as_of), [FIXTURE_TODAY, "2026-11-11"]);

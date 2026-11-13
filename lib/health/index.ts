@@ -7,4 +7,4 @@
 export type { CheckKey, CompanyProfile, Fundamentals, HealthCheck, RuleSet, ScoreOptions, Verdict } from "./types";
 export { scoreCompany } from "./score";
 export { saveSnapshot } from "./snapshot";
-export { CHECK_TEXT, NO_SCORE, NOT_ADVICE, NOTE_NO_SALES, RULE_SET_CHECKS } from "./labels";
+export { CHECK_TEXT, NO_SCORE, NOT_ADVICE, NOTE_BOTTOM_LINE, NOTE_NO_SALES, RULE_SET_CHECKS } from "./labels";

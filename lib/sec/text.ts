@@ -126,6 +126,8 @@ function notHeadline(line: string, companyKey: string): boolean {
   // Addresses: "12 ter Quai Perrache", "Austin, Texas 78701, United States", a line that stops at a comma.
   if (!hasVerb && words(line) <= 8 && (/^\d/.test(line) || /\b\d{5}(?:-\d{4})?\b/.test(line) || /,$/.test(line))) return true;
   if (companyKey && nameKey(line) === companyKey) return true; // the company's own name as letterhead
+  // Letterhead that lists a group's companies: "The Acme Insurance Company - The Acme Indemnity Company - ...".
+  if (!hasVerb && (line.match(/\b(?:incorporated|inc|corporation|corp|company|limited|ltd|llc|plc)\b/gi)?.length ?? 0) >= 2) return true;
   // A line of a table of contents or a section label ("Part I. Company Information 4", "... Statements Page", "Terms include:").
   // A whole sentence ("A term sometimes used to refer to ...") or a numbered point is text, not a headline.
   if (/^\d+\.\s/.test(line) || (/\.$/.test(line) && !/\b(?:inc|corp|ltd|co|llc|plc|s\.a|n\.v|u\.s|jr|sr)\.$/i.test(line))) return true;
