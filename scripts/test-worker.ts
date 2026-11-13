@@ -62,7 +62,7 @@ async function main() {
           if (m) mail.push({ to: [m[1]], subject: JSON.parse(m[2]), text: m[3] });
         };
         console.error = (...a: unknown[]) => { errors.push(a.join(" ")); };
-        await runWorker({ db, sec, sending: true, summaries: true, once: true, pressFetch,
+        await runWorker({ db, sec, sending: true, summaries: true, once: true, onceDaily: true, pressFetch,
           summarizer: async () => ({ ...parseSummary(JSON.stringify({ headline: "Something happened", one_sentence: "It happened, in one sentence.", bullets: ["A fact."], tone: "Routine", importance: "Medium" })), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 }) });
         console.log = log;
         console.error = realError;
@@ -89,18 +89,18 @@ async function main() {
           if (m) mail.push({ to: [m[1]], subject: JSON.parse(m[2]), text: m[3] });
         };
         const summarizer = async () => ({ ...parseSummary(JSON.stringify({ headline: "Something happened", one_sentence: "It happened, in one sentence.", bullets: ["A fact."], tone: "Routine", importance: "Medium" })), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 });
-        await runWorker({ db, sec, sending: true, summaries: true, once: true, pressFetch, summarizer });
+        await runWorker({ db, sec, sending: true, summaries: true, once: true, onceDaily: true, pressFetch, summarizer });
         // The summary may not be readable from the stand-in SEC (it answers "not found"), so the alert waits out its
         // short grace period; age the events and run the sender again, as the passing of 90 seconds would.
         await db.query(`update public.alert_events set created_at = now() - interval '2 minutes' where status = 'queued'`);
-        await runWorker({ db, sec, sending: true, summaries: false, once: true, pressFetch });
+        await runWorker({ db, sec, sending: true, summaries: false, once: true, onceDaily: true, pressFetch });
         console.log = log;
         const toFollower = mail.filter((m) => m.to[0] === "follower@example.org");
         const events = Number((await db.query(`select count(*) as n from public.alert_events where status = 'sent'`)).rows[0].n);
         assert.ok(events >= 1 && toFollower.length === events, `one email per alert: ${toFollower.length} emails, ${events} alerts sent`);
         assert.match(toFollower[0].text, /Not investment advice\./);
         assert.match(toFollower[0].text, /Unsubscribe: https:\/\/bigstocks\.test\/unsubscribe\?token=/);
-        await runWorker({ db, sec, sending: true, summaries: false, once: true, pressFetch });
+        await runWorker({ db, sec, sending: true, summaries: false, once: true, onceDaily: true, pressFetch });
         assert.equal(mail.filter((m) => m.to[0] === "follower@example.org").length, toFollower.length, "nothing is sent twice");
       });
 
@@ -110,7 +110,7 @@ async function main() {
         await db.query(`delete from public.alert_events`);
         mail.length = 0;
         console.log = (...a: unknown[]) => { if (/^\[email:console\]/.test(a.join(" "))) mail.push({ to: ["x"], subject: "", text: "" }); };
-        await runWorker({ db, sec, sending: false, summaries: false, once: true, pressFetch });
+        await runWorker({ db, sec, sending: false, summaries: false, once: true, onceDaily: true, pressFetch });
         console.log = log;
         assert.equal(mail.length, 0);
         assert.ok(Number((await db.query(`select count(*) as n from public.alert_events where status = 'queued'`)).rows[0].n) >= 1);

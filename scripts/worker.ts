@@ -17,7 +17,8 @@
  *
  * Switches (environment):
  *   ALERTS_SENDING=off   do everything except send email (the 48-hour side-by-side check, plan Phase 6)
- *   WORKER_ONCE=1        run each job once and exit (for a check after deploying)
+ *   WORKER_ONCE=1        run each regular job once and exit (for a check after deploying). The two daily
+ *                        jobs are left out, so the check never sends the daily summary early.
  */
 import "./load-env";
 import { Pool } from "pg";
@@ -56,8 +57,10 @@ export type WorkerOptions = {
   sending: boolean;
   /** Write AI summaries (needs ANTHROPIC_API_KEY). */
   summaries: boolean;
-  /** Run every job once, including the daily ones, and return (the deploy check and the tests). */
+  /** Run every regular job once and return (the deploy check and the tests). */
   once: boolean;
+  /** With `once`: also run the two daily jobs (the tests do; the deploy check does not, so it never sends the daily summary early). */
+  onceDaily?: boolean;
   /** Replaceable for tests: the fetch used for newswire feeds, and the writer of summaries. */
   pressFetch?: typeof fetch;
   summarizer?: Summarizer;
@@ -75,7 +78,7 @@ async function main() {
   console.log("[worker] stopped.");
 }
 
-export async function runWorker({ db, sec, sending, summaries, once, pressFetch, summarizer }: WorkerOptions): Promise<void> {
+export async function runWorker({ db, sec, sending, summaries, once, onceDaily, pressFetch, summarizer }: WorkerOptions): Promise<void> {
 
   let stopping = false;
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => { stopping = true; console.log(`[worker] ${sig}: finishing the current job, then stopping.`); });
@@ -92,7 +95,7 @@ export async function runWorker({ db, sec, sending, summaries, once, pressFetch,
   /** Runs `fn` once a day, the first time the New York clock passes hour:minute. Remembers the day in job_state. */
   const daily = async (job: string, hour: number, minute: number, fn: () => Promise<unknown>) => {
     if (once) {
-      await runJob(db, job, fn);
+      if (onceDaily) await runJob(db, job, fn);
       return;
     }
     while (!stopping) {
