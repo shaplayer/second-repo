@@ -58,7 +58,16 @@ function website(v: unknown): string | null {
 }
 
 /** Reads https://data.sec.gov/submissions/CIK##########.json. Throws when it is not that file. */
-export function parseSubmissions(json: unknown): { company: CompanyRecord; recent: RecentFiling[] } {
+export function parseSubmissions(json: unknown): {
+  company: CompanyRecord;
+  recent: RecentFiling[];
+  /**
+   * True when the company also files insider-trade reports about OTHER companies' shares (as a big
+   * shareholder). Its list of filings then mixes those in with reports about its own shares, and the
+   * record does not say which is which.
+   */
+  reportsAsInsider: boolean;
+} {
   const j = json as Record<string, unknown> | null;
   const name = str(j?.name);
   if (!j || typeof j !== "object" || !name) throw new Error("Not an SEC company record: it has no name");
@@ -77,7 +86,7 @@ export function parseSubmissions(json: unknown): { company: CompanyRecord; recen
     phone: str(j.phone),
     fiscalYearEnd: fye && /^\d{4}$/.test(fye) ? fye : null,
     city: tidyPlace(str(business.city)),
-    state: str(business.stateOrCountry),
+    state: str(business.stateOrCountry) ?? str(business.country),
     filerCategory: parts.length ? parts.join(" | ") : null,
     isEmergingGrowth: /emerging growth company/i.test(category ?? ""),
     tickers: list(j.tickers),
@@ -104,7 +113,8 @@ export function parseSubmissions(json: unknown): { company: CompanyRecord; recen
       primaryDocument: str(docs[i]),
     });
   }
-  return { company, recent };
+  const flag = j.insiderTransactionForOwnerExists;
+  return { company, recent, reportsAsInsider: flag === 1 || flag === true || flag === "1" };
 }
 
 /** Exact acceptance times from the company's Atom feed, by accession number. Unreadable entries are left out. */
