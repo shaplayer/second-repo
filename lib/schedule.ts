@@ -1,4 +1,5 @@
-import { alertWindow } from "./site";
+/** The pick window, US Eastern: 8:00 AM to the 9:30 AM opening bell, trading days only. */
+export const alertWindow = { startHourET: 8, startMinuteET: 0, endHourET: 9, endMinuteET: 30 };
 
 /**
  * Pick-window schedule, all in US Eastern time.

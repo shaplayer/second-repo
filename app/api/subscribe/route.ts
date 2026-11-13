@@ -1,96 +1,55 @@
-import { NextResponse } from "next/server";
-import { db, hasDb } from "@/lib/db";
-import { SMS_CONSENT_TEXT, SMS_WELCOME, smsCombinedConsentText, toE164US } from "@/lib/sms-consent";
-import { normalizeTicker } from "@/lib/feeds/tickers";
-import { smsProvider } from "@/lib/sms";
+import { consentFor, SIGNED_IN_CONSENT } from "@/components/signup/consent";
+import { sendAlreadySubscribed, sendConfirmation } from "@/lib/alerts/mail";
+import { signUp } from "@/lib/alerts/subscriptions";
+import { normalizeEmail } from "@/lib/auth/accounts";
+import { getCompanyByCik } from "@/lib/data/companies";
+import { db } from "@/lib/db";
+import { clientIp, currentUser, json, readJson, sameOrigin, userAgent } from "@/lib/web/request";
+import { pendingSignup, rememberSignup } from "@/lib/web/signup-cookie";
 
-export const dynamic = "force-dynamic";
-
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-// Basic per-IP throttle (per server process).
-const hits = new Map<string, number[]>();
-function throttled(ip: string) {
-  const now = Date.now();
-  const recent = (hits.get(ip) ?? []).filter((t) => now - t < 60_000);
-  recent.push(now);
-  hits.set(ip, recent);
-  return recent.length > 5;
-}
-
-type Body = {
-  channel?: "email" | "sms"; email?: string; phone?: string; smsConsent?: boolean; source?: string; company?: string;
-  /** "combined" = the bell pop-up checkbox that also covers one ticker's news (see lib/sms-consent). */
-  consent?: "combined"; ticker?: string;
-};
-
+/**
+ * Sign up for email alerts: the free pick list and, optionally, one company.
+ * Nothing is switched on here. The address gets one confirmation email; only the click on its link
+ * makes the alerts active. The reply is the same whether or not the address was already on a list.
+ */
 export async function POST(req: Request) {
-  let body: Body;
-  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid request." }, { status: 400 }); }
+  if (!sameOrigin(req)) return json({ ok: false, error: "That request didn't come from this site." }, 403);
+  const body = await readJson(req);
+  const email = normalizeEmail(body.email);
+  if (!email) return json({ ok: false, error: "That email address doesn't look right. Check it and try again." }, 400);
+  const pool = db();
+  const cik = typeof body.cik === "number" && Number.isSafeInteger(body.cik) && body.cik > 0 ? body.cik : null;
+  const company = cik ? await getCompanyByCik(pool, cik) : null;
+  if (cik && !company) return json({ ok: false, error: "We couldn't find that company." }, 400);
+  const picks = body.picks !== false;
+  const [user, ip, ua, waiting] = await Promise.all([currentUser(), clientIp(), userAgent(), pendingSignup()]);
+  const own = user?.email === email;
+  // Adding to a sign-up that is already waiting in this browser, for the same address.
+  const batch = waiting && waiting.email === email && typeof body.batch === "string" && body.batch === waiting.batch ? waiting.batch : null;
 
-  // Honeypot: real people never fill the hidden "company" field.
-  if (body.company) return NextResponse.json({ ok: true });
-
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const ua = req.headers.get("user-agent")?.slice(0, 300) ?? null;
-  const source = String(body.source ?? "home").slice(0, 40);
-  const isSms = body.channel === "sms";
-
-  let email: string | null = null;
-  let phone: string | null = null;
-  if (isSms) {
-    phone = toE164US(String(body.phone ?? ""));
-    if (!phone) return NextResponse.json({ error: "Please enter a valid US mobile number." }, { status: 400 });
-    if (body.smsConsent !== true) return NextResponse.json({ error: "Please check the box to agree to receive text alerts." }, { status: 400 });
-  } else {
-    email = String(body.email ?? "").trim().toLowerCase();
-    if (!EMAIL_RE.test(email) || email.length > 254) {
-      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
-    }
+  const result = await signUp(pool, {
+    email, cik, picks, source: String(body.source ?? "site").slice(0, 80), ip, userAgent: ua, batch,
+    consentText: own ? SIGNED_IN_CONSENT : consentFor(company?.ticker, picks),
+    verifiedEmail: own ? user!.email : null, userId: own ? user!.id : null,
+  });
+  if (result.suppressed) {
+    return json({ ok: false, error: "We can't send email to that address. If you think that's a mistake, contact us." }, 400);
   }
-
-  // Store the exact wording the person saw.
-  const combinedTicker = body.consent === "combined" ? normalizeTicker(body.ticker) : null;
-  const consentText = combinedTicker ? smsCombinedConsentText(combinedTicker) : SMS_CONSENT_TEXT;
-
-  if (throttled(ip)) return NextResponse.json({ error: "Too many attempts. Try again in a minute." }, { status: 429 });
-  if (!hasDb()) {
-    console.warn("[subscribe] DATABASE_URL not set; sign-up not stored");
-    return NextResponse.json({ error: "Sign-ups are almost ready. Please check back shortly." }, { status: 503 });
+  if (own) {
+    if (cik) await pool.query(`insert into public.watchlists (user_id, cik) values ($1, $2) on conflict do nothing`, [user!.id, cik]);
+    return json({ ok: true, next: "/my-stocks" });
   }
-
   try {
-    if (email) {
-      await db().query(
-        `INSERT INTO subscribers (email, ip, user_agent, source) VALUES ($1, $2, $3, $4)
-         ON CONFLICT (email) DO UPDATE SET unsubscribed_at = NULL, general_alerts = TRUE`,
-        [email, ip, ua, source],
-      );
-      return NextResponse.json({ ok: true });
+    if (result.confirmToken) {
+      const sent = await sendConfirmation(pool, result.confirmToken, { visitor: ip });
+      if (sent === "limited") return json({ ok: false, error: "Too many sign-ups in a short time. Please try again in an hour." }, 429);
+      await rememberSignup({ email, batch: result.batch, confirmToken: result.confirmToken });
+    } else if (result.alreadyActive) {
+      await sendAlreadySubscribed(pool, email, { visitor: ip });
     }
-
-    // SMS: record the exact consent wording and time (TCPA), then send the opt-in confirmation.
-    const { rows } = await db().query(
-      `INSERT INTO subscribers (phone, sms_consent, consent_text, consent_at, ip, user_agent, source)
-       VALUES ($1, TRUE, $2, now(), $3, $4, $5)
-       ON CONFLICT (phone) DO UPDATE
-         SET sms_consent = TRUE, consent_text = EXCLUDED.consent_text, consent_at = now(),
-             ip = EXCLUDED.ip, user_agent = EXCLUDED.user_agent, unsubscribed_at = NULL, general_alerts = TRUE
-       RETURNING (xmax = 0) AS inserted`,
-      [phone, consentText, ip, ua, source],
-    );
-    const sms = smsProvider();
-    // Bell pop-up: /api/follow sends one welcome text covering both, so don't send a second.
-    if (combinedTicker) return NextResponse.json({ ok: true, new: rows[0]?.inserted ?? true });
-    if (sms.configured()) {
-      try { await sms.send(phone!, SMS_WELCOME); }
-      catch (e) { console.error(`[subscribe] welcome SMS via ${sms.name} failed:`, (e as Error).message); }
-    } else {
-      console.warn(`[subscribe] SMS provider "${sms.name}" not configured; sign-up stored, no welcome text sent`);
-    }
-    return NextResponse.json({ ok: true, new: rows[0]?.inserted ?? true });
   } catch (e) {
-    console.error("[subscribe]", (e as Error).message);
-    return NextResponse.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    console.error("[subscribe] could not send the confirmation email:", (e as Error).message);
+    return json({ ok: false, error: "We couldn't send the confirmation email just now. Please try again in a minute." }, 502);
   }
+  return json({ ok: true, next: "/confirm" });
 }

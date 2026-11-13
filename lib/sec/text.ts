@@ -48,6 +48,7 @@ export function htmlToText(html: string): string {
     .replace(/<[^>]+>/g, " ");
   return decodeEntities(stripped)
     .replace(/[​-‍﻿­]/g, "")
+    .replace(/[‐‑]/g, "-") // typographic and non-breaking hyphens: plain ones search and wrap better
     .replace(/[ \t\f\v  -  　]+/g, " ")
     .replace(/\s*\n\s*/g, "\n")
     .trim();

@@ -1,33 +1,33 @@
 import type { Metadata, Viewport } from "next";
-import "@fontsource-variable/inter";
+import "@fontsource-variable/manrope";
 import "./globals.css";
-import { AlertsDialog } from "@/components/AlertsDialog";
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bigstocks.com";
+import { siteUrl } from "@/lib/config";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: "BigStocks: Stock alerts, breaking news & SEC filings by text and email",
+  metadataBase: new URL(siteUrl()),
+  title: { default: "BigStocks: every press release and SEC filing, in one sentence", template: "%s | BigStocks" },
   description:
-    "Big stock alerts and breaking news, on your phone in seconds. Our picks plus real-time press releases and SEC filings, by text and email.",
+    "What's the latest on your stock? Every press release and SEC filing, explained in one plain sentence the moment it posts. Free email alerts and a free daily pick.",
   openGraph: {
-    title: "BigStocks: Big stock alerts and breaking news, on your phone in seconds.",
-    description: "Winning stock alerts, press releases and SEC filings by email and text. Join 125,000+ investors.",
-    url: siteUrl,
+    title: "BigStocks: what's the latest on your stock?",
+    description: "Every press release and SEC filing, explained in one sentence, the moment it posts.",
+    url: siteUrl(),
     siteName: "BigStocks",
     type: "website",
   },
-  twitter: { card: "summary_large_image" },
+  twitter: { card: "summary" },
 };
 
-export const viewport: Viewport = { themeColor: "#07090a", colorScheme: "dark" };
+export const viewport: Viewport = { themeColor: "#ffffff", colorScheme: "light" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh overflow-x-hidden">
+      <body>
+        <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2">
+          Skip to the main content
+        </a>
         {children}
-        <AlertsDialog />
       </body>
     </html>
   );

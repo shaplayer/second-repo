@@ -147,7 +147,7 @@ export function documentsFromFolder(files: { name: string; url: string }[], form
   for (const f of files) {
     if (/-index(?:-headers)?\.html?$/i.test(f.name) || /^\d{10}-\d{2}-\d{6}\.txt$/.test(f.name)) continue;
     let type = "";
-    const ex99 = /(?:ex|exhibit)[-_]?99[-_.]?(\d{1,2})?/i.exec(f.name);
+    const ex99 = /(?:ex|exhibit)[-_]?99[-_.]?(0?[1-9])?/i.exec(f.name);
     if (ex99 && READABLE.test(f.name)) type = ex99[1] ? `EX-99.${Number(ex99[1])}` : "EX-99";
     else if (/\.(?:jpe?g|gif|png)$/i.test(f.name)) type = "GRAPHIC";
     else if (/^ex[-_]?\d|[-_]ex[-_]?\d/i.test(f.name)) type = "EX";

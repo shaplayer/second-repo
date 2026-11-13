@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="ISO-8859-1" ?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <author><email>webmaster@sec.gov</email><name>Webmaster</name></author>
+  <company-info>
+    <cik>0000320193</cik>
+    <conformed-name>Apple Inc.</conformed-name>
+    <fiscal-year-end>0926</fiscal-year-end>
+  </company-info>
+  <entry>
+    <category label="form type" scheme="https://www.sec.gov/" term="8-K" />
+    <content type="text/xml">
+      <accession-number>0001140361-26-042798</accession-number>
+      <act>34</act>
+      <file-number>001-36743</file-number>
+      <filing-date>2026-11-09</filing-date>
+      <filing-href>https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/0001140361-26-042798-index.htm</filing-href>
+      <filing-type>8-K</filing-type>
+      <form-name>Current report</form-name>
+      <items-desc>items 8.01 and 9.01</items-desc>
+      <size>1 MB</size>
+    </content>
+    <id>urn:tag:sec.gov,2008:accession-number=0001140361-26-042798</id>
+    <link href="https://www.sec.gov/Archives/edgar/data/320193/000114036126042798/0001140361-26-042798-index.htm" rel="alternate" type="text/html" />
+    <summary type="html"> &lt;b&gt;Filed:&lt;/b&gt; 2026-11-09 &lt;b&gt;AccNo:&lt;/b&gt; 0001140361-26-042798 &lt;b&gt;Size:&lt;/b&gt; 1 MB&lt;br&gt;Item 8.01: Other Events</summary>
+    <title>8-K  - Current report</title>
+    <updated>2026-11-09T16:30:40-05:00</updated>
+  </entry>
+  <entry>
+    <category label="form type" scheme="https://www.sec.gov/" term="10-K" />
+    <content type="text/xml">
+      <accession-number>0000320193-26-000026</accession-number>
+      <filing-date>2026-11-03</filing-date>
+      <filing-type>10-K</filing-type>
+    </content>
+    <id>urn:tag:sec.gov,2008:accession-number=0000320193-26-000026</id>
+    <title>10-K  - Annual report [Section 13 and 15(d), not S-K Item 405]</title>
+    <updated>2026-11-03T18:05:15-05:00</updated>
+  </entry>
+  <entry>
+    <category label="form type" scheme="https://www.sec.gov/" term="8-K" />
+    <id>urn:tag:sec.gov,2008:accession-number=0000320193-26-000024</id>
+    <title>8-K  - Current report</title>
+    <updated>2026-11-02T16:30:23-05:00</updated>
+  </entry>
+  <entry>
+    <title>An entry with no accession number</title>
+    <updated>2026-11-01T10:00:00-04:00</updated>
+  </entry>
+</feed>

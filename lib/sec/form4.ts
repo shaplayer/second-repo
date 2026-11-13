@@ -284,5 +284,7 @@ export function insiderSummary(trades: InsiderTrade[], who?: { owner?: string | 
     whyItMatters = "This is routine paperwork about an insider's stock awards.";
   }
 
+  // A headline is at most 12 words: a very long job title gives way to "An executive".
+  if (headline.split(/\s+/).length > 12) headline = `An executive${headline.slice(head.length)}`;
   return { headline, oneSentence, bullets, whyItMatters, tone, importance };
 }

@@ -27,6 +27,12 @@ export const smsEnabled = (env: NodeJS.ProcessEnv = process.env) => env.SMS_ENAB
  */
 export const growthRulesEnabled = (env: NodeJS.ProcessEnv = process.env) => env.HEALTH_GROWTH_RULES === "1";
 
+/**
+ * Numbers shown to visitors and sponsors. Only verified numbers go here: sponsors will check them.
+ * (Carried over from the old site, where the owner maintained them.)
+ */
+export const audience = { emailSubscribers: 125_000, dailyImpressions: 1_000_000, dailyClicks: 5_000 };
+
 /** Where sponsor inquiries and operational notices are emailed. */
 export const teamInbox = (env: NodeJS.ProcessEnv = process.env) =>
   (env.INQUIRY_NOTIFY_TO ?? "").split(",").map((s) => s.trim()).filter((s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s));

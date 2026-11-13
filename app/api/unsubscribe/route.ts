@@ -1,32 +1,34 @@
-import { NextResponse } from "next/server";
-import { db, hasDb } from "@/lib/db";
-import { site } from "@/lib/follow/messages";
+import { undoUnsubscribe, unsubscribe, type UnsubscribeScope } from "@/lib/alerts/subscriptions";
+import { db } from "@/lib/db";
+import { json } from "@/lib/web/request";
 
-export const dynamic = "force-dynamic";
+const SCOPES: UnsubscribeScope[] = ["this", "stocks", "picks", "all"];
 
 /**
- * Unsubscribe from BigStocks alert emails (the main list).
- * - Email clients' one-click button POSTs here (RFC 8058, List-Unsubscribe-Post).
- * - The form on /unsubscribe POSTs here too, then we redirect back with a confirmation.
- * Company follows (the bell) have their own links and aren't affected.
+ * Unsubscribing. Two callers:
+ *  - a mail app's own "Unsubscribe" button (RFC 8058): a POST straight to this address with the code
+ *    in the link and no page involved. It stops what that email was about, at once.
+ *  - our unsubscribe page, after the person chose what to stop (or pressed "Undo").
+ * The code in the link is the proof; no sign-in and no other check is asked for, by design: stopping
+ * email must never be hard.
  */
 export async function POST(req: Request) {
-  const token = new URL(req.url).searchParams.get("t") ?? "";
-  let ok = false;
-  if (hasDb() && /^[a-f0-9]{32}$/.test(token)) {
-    const { rowCount } = await db().query(
-      `UPDATE subscribers SET general_alerts = FALSE WHERE unsub_token = $1 AND email IS NOT NULL`, [token],
-    );
-    ok = Boolean(rowCount);
+  const url = new URL(req.url);
+  let token = url.searchParams.get("token") ?? "";
+  let scope = url.searchParams.get("scope") ?? "this";
+  let undo = "";
+  const type = req.headers.get("content-type") ?? "";
+  if (type.includes("application/json")) {
+    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    token = typeof body.token === "string" ? body.token : token;
+    scope = typeof body.scope === "string" ? body.scope : scope;
+    undo = typeof body.undo === "string" ? body.undo : "";
   }
-  const isForm = (req.headers.get("content-type") ?? "").includes("application/x-www-form-urlencoded")
-    && !(await req.clone().text()).includes("List-Unsubscribe=One-Click");
-  if (isForm) return NextResponse.redirect(`${site()}/unsubscribe?t=${encodeURIComponent(token)}&done=1`, 303);
-  return NextResponse.json({ ok });
-}
-
-/** A plain link click: show the confirmation page instead of unsubscribing on GET (link scanners click everything). */
-export function GET(req: Request) {
-  const token = new URL(req.url).searchParams.get("t") ?? "";
-  return NextResponse.redirect(`${site()}/unsubscribe?t=${encodeURIComponent(token)}`, 303);
+  const pool = db();
+  if (undo) return json({ ok: true, restored: await undoUnsubscribe(pool, undo) });
+  if (!SCOPES.includes(scope as UnsubscribeScope)) scope = "this";
+  const done = await unsubscribe(pool, token, scope as UnsubscribeScope);
+  // An unknown code gets the same calm answer: nothing to stop.
+  if (!done) return json({ ok: true, stopped: 0 });
+  return json({ ok: true, stopped: done.stopped, undo: done.undoToken });
 }

@@ -1,0 +1,126 @@
+{
+  "source": "SEC EDGAR companyfacts and submissions files (public domain), saved in November 2026.",
+  "trimmed": "Each facts file keeps only the tags the health check reads, only facts for periods ending in 2023 or later, and only the fields start, end, val, accn, form and filed. The health check gives the same result on the trimmed file as on the full one (with today = 2026-11-10).",
+  "companies": [
+    {
+      "file": "beta-bionics.json",
+      "cik": 1674632,
+      "name": "Beta Bionics, Inc.",
+      "ticker": "BBNX",
+      "exchange": "Nasdaq",
+      "sic": "3841",
+      "category": "Non-accelerated filer<br>Smaller reporting company<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Growth rules: Strong. Went public in 2025, so the share check has no answer for the first two quarters.",
+      "trimming": null
+    },
+    {
+      "file": "i-80-gold.json",
+      "cik": 1853962,
+      "name": "i-80 Gold Corp.",
+      "ticker": "IAUX",
+      "exchange": "NYSE",
+      "sic": "1040",
+      "category": "<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Growth rules: Mixed. Filed its first annual reports on Form 40-F before switching to US forms.",
+      "trimming": "one extra fact kept (ifrs-full:AdditionsToRightofuseAssets) so the date of the first annual or quarterly report (2023-03-14) survives the trimming"
+    },
+    {
+      "file": "t-stamp.json",
+      "cik": 1718939,
+      "name": "T Stamp Inc",
+      "ticker": "IDAI",
+      "exchange": "Nasdaq",
+      "sic": "7372",
+      "category": "<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Growth rules: Weak, with sales. Its annual report tags the full-year loss as the fourth-quarter loss.",
+      "trimming": "one extra fact kept (dei:EntityCommonStockSharesOutstanding) so the date of the first annual or quarterly report (2022-03-21) survives the trimming"
+    },
+    {
+      "file": "absci.json",
+      "cik": 1672688,
+      "name": "Absci Corp",
+      "ticker": "ABSI",
+      "exchange": "Nasdaq",
+      "sic": "8731",
+      "category": "Non-accelerated filer<br>Smaller reporting company<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Growth rules: Weak, no meaningful sales. Footnote totals and a noncurrent figure repeat money already on the balance sheet.",
+      "trimming": "one extra fact kept (dei:EntityCommonStockSharesOutstanding) so the date of the first annual or quarterly report (2021-09-07) survives the trimming"
+    },
+    {
+      "file": "edible-garden.json",
+      "cik": 1809750,
+      "name": "Edible Garden AG Inc",
+      "ticker": "EDBL",
+      "exchange": "Nasdaq",
+      "sic": "0100",
+      "category": "<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "No score: the nine-month loss is mis-tagged, so the fourth quarter of 2025 cannot be trusted. Many reverse share splits; only the diluted share count is tagged.",
+      "trimming": "one extra fact kept (dei:EntityCommonStockSharesOutstanding) so the date of the first annual or quarterly report (2022-06-21) survives the trimming"
+    },
+    {
+      "file": "imagenebio.json",
+      "cik": 1835579,
+      "name": "ImageneBio, Inc.",
+      "ticker": "IMA",
+      "exchange": "Nasdaq",
+      "sic": "2836",
+      "category": "Non-accelerated filer<br>Smaller reporting company<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Restated: the 2024 full-year loss was filed again a year later with a different figure.",
+      "trimming": "one extra fact kept (dei:EntityCommonStockSharesOutstanding) so the date of the first annual or quarterly report (2021-05-13) survives the trimming"
+    },
+    {
+      "file": "werewolf.json",
+      "cik": 1785530,
+      "name": "Werewolf Therapeutics, Inc.",
+      "ticker": "HOWL",
+      "exchange": "Nasdaq",
+      "sic": "2834",
+      "category": "Non-accelerated filer<br>Smaller reporting company<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Its only sales are collaboration revenue, reported under a separate tag.",
+      "trimming": "one extra fact kept (dei:EntityCommonStockSharesOutstanding) so the date of the first annual or quarterly report (2021-06-10) survives the trimming"
+    },
+    {
+      "file": "omada-health.json",
+      "cik": 1611115,
+      "name": "Omada Health, Inc.",
+      "ticker": "OMDA",
+      "exchange": "Nasdaq",
+      "sic": "8000",
+      "category": "Non-accelerated filer<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Profitable emerging growth company: stays on the standard rules.",
+      "trimming": null
+    },
+    {
+      "file": "melar-acquisition.json",
+      "cik": 2016221,
+      "name": "Melar Acquisition Corp. I/Cayman",
+      "ticker": "MACI",
+      "exchange": "Nasdaq",
+      "sic": "7389",
+      "category": "<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "Blank-check company (SPAC) whose industry code does not say so; found by its trust account.",
+      "trimming": null
+    },
+    {
+      "file": "blossomhill.json",
+      "cik": 1839970,
+      "name": "BlossomHill Therapeutics, Inc.",
+      "ticker": "BLSM",
+      "exchange": "Nasdaq",
+      "sic": "2834",
+      "category": "Non-accelerated filer<br>Smaller reporting company<br>Emerging growth company",
+      "isEmergingGrowth": true,
+      "about": "New listing with fewer than four quarterly reports.",
+      "trimming": null
+    }
+  ]
+}
