@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { FeedSummary } from "@/lib/data/feed";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 
 type View = { status: "ready"; summary: FeedSummary } | { status: "pending" } | { status: "unavailable"; reason: string };
 
@@ -53,8 +54,11 @@ export function SummaryLoader({ id, originalUrl, sourceName }: { id: string; ori
 
   if (view.status === "ready") return <SummaryBody summary={view.summary} />;
   return (
-    <div aria-live="polite" className="flex flex-col gap-1.5">
-      <span className="text-lg font-bold">{view.status === "pending" ? "Summary not ready yet" : "No summary for this one"}</span>
+    <div role="status" className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        {view.status === "pending" && <LoadingSpinner className="h-5 w-5 flex-none animate-spin text-brand" />}
+        <span className="text-lg font-bold">{view.status === "pending" ? "Summary not ready yet" : "No summary for this one"}</span>
+      </div>
       <p className="m-0 text-base leading-normal text-ink-2">
         {view.status === "pending" ? "Writing the plain-English summary. It usually takes under a minute." : view.reason}{" "}
         <a href={originalUrl} target="_blank" rel="noopener noreferrer" className="font-bold">Read the original on {sourceName} ↗</a>

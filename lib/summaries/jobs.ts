@@ -201,6 +201,7 @@ export async function processSummaryJobs(
       await finish("done", null);
       result.written++;
     } catch (e) {
+      console.error(e);
       const message = (e as Error).message;
       if (e instanceof SummaryRefused || job.attempts >= 3) {
         await finish("failed", message);

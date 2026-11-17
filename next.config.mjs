@@ -1,5 +1,3 @@
-import type { NextConfig } from "next";
-
 const dev = process.env.NODE_ENV !== "production";
 
 /**
@@ -19,7 +17,8 @@ const csp = [
   "frame-ancestors 'none'",
 ].join("; ");
 
-const nextConfig: NextConfig = {
+/** @type {import("next").NextConfig} */
+const nextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ["pg"],
   async headers() {
@@ -41,7 +40,7 @@ const nextConfig: NextConfig = {
    * The query string (the code in a confirm or unsubscribe link) is carried over automatically.
    */
   async redirects() {
-    const to = (source: string, destination: string) => ({ source, destination, permanent: false });
+    const to = (source, destination) => ({ source, destination, permanent: false });
     return [
       // Links in emails sent by the old data site and the old app.
       to("/alerts/confirm", "/confirm"),

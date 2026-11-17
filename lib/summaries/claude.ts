@@ -157,10 +157,12 @@ export function userPrompt(i: SummaryInput): string {
 
 /** Asks Claude for the summary. Throws SummaryRefused when it declines; other errors are worth retrying. */
 export const summarizeWithAnthropic: Summarizer = async (input) => {
+  console.log("Summarizing document:", input.company, input.ticker, process.env.SUMMARY_PROVIDER?.trim());
   try {
     const client = anthropic();
     if (!client) throw new Error("SUMMARY_PROVIDER is not set, so summaries cannot be written.");
     if(process.env.SUMMARY_PROVIDER?.trim() == "anthropic") {
+      console.log("Using Anthropic provider.");
       // SDK call for anthropic
       const response = await client.beta.messages.create({
         model: summarymodel(),
@@ -171,6 +173,7 @@ export const summarizeWithAnthropic: Summarizer = async (input) => {
         output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
         messages: [{ role: "user", content: userPrompt(input) }],
       });
+      console.log(response);
       if (response.stop_reason === "refusal") throw new SummaryRefused("Claude declined to summarize this document.");
       if (response.stop_reason === "max_tokens") throw new Error("The summary was cut off before it finished.");
       const out = response.content.find((b) => b.type === "text");
@@ -182,6 +185,7 @@ export const summarizeWithAnthropic: Summarizer = async (input) => {
         outputTokens: response.usage.output_tokens ?? 0,
       };
     } else {
+      console.log("Using OpenRouter or local model provider.");
       // SDK call for openrouter and local models
       const response = await client.messages.create({
         model: summarymodel(),
@@ -190,6 +194,7 @@ export const summarizeWithAnthropic: Summarizer = async (input) => {
         output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
         messages: [{ role: "user", content: userPrompt(input) }],
       });
+      console.log(response);
       if (response.stop_reason === "refusal") throw new SummaryRefused("Claude declined to summarize this document.");
       if (response.stop_reason === "max_tokens") throw new Error("The summary was cut off before it finished.");
       const out = response.content.find((b) => b.type === "text");

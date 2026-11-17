@@ -7,6 +7,7 @@ import { groupInsiderTrades, insiderGroupText } from "@/lib/feed-groups";
 import { CATEGORY_LABEL, type Category } from "@/lib/plain";
 import { TypeBadge } from "@/components/ui/Badges";
 import { PauseIcon, PlayIcon } from "@/components/ui/Icons";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { TimeAgo } from "@/components/ui/TimeAgo";
 import { clockET } from "@/lib/time";
 import { SignupForm } from "@/components/signup/SignupForm";
@@ -82,9 +83,12 @@ function SummaryPanel({ item, view, nested = false }: { item: FeedItem; view: Su
       ) : view?.status === "unavailable" ? (
         <p className="m-0 text-[15px] leading-normal text-ink-2">{view.reason}</p>
       ) : (
-        <div aria-live="polite">
-          <span className="text-base font-bold">Summary not ready yet</span>
-          <p className="m-0 mt-1 text-[15px] leading-normal text-ink-2">Writing the plain-English summary. It usually takes under a minute.</p>
+        <div role="status" className="flex items-start gap-2">
+          <LoadingSpinner className="mt-1 h-4 w-4 flex-none animate-spin text-brand" />
+          <div>
+            <span className="text-base font-bold">Summary not ready yet</span>
+            <p className="m-0 mt-1 text-[15px] leading-normal text-ink-2">Writing the plain-English summary. It usually takes under a minute.</p>
+          </div>
         </div>
       )}
       {links}
