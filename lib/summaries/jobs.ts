@@ -16,7 +16,7 @@ import { baseForm } from "../plain";
 import type { SecClient } from "../sec/client";
 import { parseFilingIndexHtml, pickPrimary } from "../sec/filing-index";
 import { htmlToText } from "../sec/text";
-import { PROMPT_VERSION, SummaryRefused, summarizeWithClaude, type Summarizer } from "./claude";
+import { PROMPT_VERSION, SummaryRefused, summarizeWithAnthropic, type Summarizer } from "./claude";
 
 type Db = Pool | PoolClient | Client;
 
@@ -36,7 +36,9 @@ const BUSY = "Summaries are busy right now. Try again in a little while, or read
  * the waiting list (within the limits that keep one visitor, or a flood of them, from running up the bill).
  */
 export async function requestSummary(db: Db, id: string, opts: { visitor: string | null }): Promise<SummaryState> {
+  console.log("Requesting summary for", id)
   const item = await getFeedItem(db, id);
+  console.log(item)
   if (!item) return { status: "unavailable", reason: "We couldn't find that item." };
   if (item.summary) return { status: "ready", item };
   if (!item.canSummarize) return { status: "unavailable", reason: NOT_ALLOWED };
@@ -122,8 +124,19 @@ async function documentFor(db: Db, sec: SecClient, job: Job): Promise<{ text: st
       await db.query(`update public.filings set primary_url = $2, primary_document = $3 where accession = $1`, [job.accession, main.url, main.name]);
     } else if (!f.exhibit) return null;
   }
+  // XML-based forms (SCHEDULE 13D/G and friends): the SEC's "xsl…/" address returns the filing
+  // rendered as HTML, so it reads like any other page. A raw .xml address is swapped for the
+  // rendered one listed on the filing's index page.
+  if (/\.xml$/i.test(url) && !/\/xsl[^/]*\//i.test(url)) {
+    const name = url.slice(url.lastIndexOf("/") + 1);
+    const docs = parseFilingIndexHtml(await sec.text(f.index_url));
+    const rendered = docs.find((d) => /\/xsl[^/]*\//i.test(d.url) && d.url.endsWith("/" + name));
+    if (rendered) url = rendered.url;
+  }
   let main = "";
-  if (/\.(html?|txt)$/i.test(url) && !url.endsWith("-index.htm")) main = htmlToText(await sec.text(url));
+  const readable = /\.(html?|txt)$/i.test(url) && !url.endsWith("-index.htm");
+  const renderedXml = /\/xsl[^/]*\/[^/]+\.xml$/i.test(url);
+  if (readable || renderedXml) main = htmlToText(await sec.text(url));
   const { base } = baseForm(f.form);
   // For company news the announcement itself is usually the attached press release; the cover filing is short boilerplate.
   const text = f.exhibit && (base === "8-K" || base === "6-K")
@@ -142,7 +155,7 @@ export type ProcessResult = { written: number; failed: number; retrying: number 
 export async function processSummaryJobs(
   db: Db, sec: SecClient, opts: { limit?: number; summarizer?: Summarizer } = {},
 ): Promise<ProcessResult> {
-  const summarize = opts.summarizer ?? summarizeWithClaude;
+  const summarize = opts.summarizer ?? summarizeWithAnthropic;
   const result: ProcessResult = { written: 0, failed: 0, retrying: 0 };
   // A job claimed long ago and never finished (the worker stopped mid-way) goes back on the list.
   await db.query(`update public.summary_jobs set status = 'queued' where status = 'working' and claimed_at < now() - interval '10 minutes'`);

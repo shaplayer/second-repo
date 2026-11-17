@@ -11,7 +11,6 @@ import Anthropic from "@anthropic-ai/sdk";
 
 /** Raise this whenever SYSTEM or SCHEMA changes, so old and new summaries can be told apart. */
 export const PROMPT_VERSION = 2;
-export const SUMMARY_MODEL = "claude-opus-5-5";
 
 export const SYSTEM = `You explain SEC filings and company press releases to everyday investors who have never read one and don't want to learn the jargon.
 
@@ -73,10 +72,55 @@ export class SummaryRefused extends Error {}
 
 export type Summarizer = (input: SummaryInput) => Promise<SummaryOutput>;
 
+function requiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required for the selected summary provider.`);
+  return value;
+}
+
+function summarymodel(): string {
+  const provider = process.env.SUMMARY_PROVIDER?.trim();
+  switch (provider) {
+    case "anthropic":
+      return requiredEnv("ANTHROPIC_SUMMARY_MODEL");
+    case "openrouter":
+      return requiredEnv("OPENROUTER_SUMMARY_MODEL");
+    case "local":
+      return requiredEnv("LOCAL_SUMMARY_MODEL");
+    default:
+      throw new Error("SUMMARY_PROVIDER must be anthropic, openrouter, or local.");
+  }
+}
+
 let client: Anthropic | null = null;
 const anthropic = () => {
-  if (!process.env.ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY is not set, so summaries cannot be written.");
-  return (client ??= new Anthropic());
+  const provider = process.env.SUMMARY_PROVIDER?.trim();
+  switch (provider) {
+    case "anthropic":
+      return new Anthropic({
+        baseURL: "https://api.anthropic.com",
+        apiKey: requiredEnv("ANTHROPIC_API_KEY"),
+      });
+
+    case "openrouter":
+      return new Anthropic({
+        baseURL: requiredEnv("OPENROUTER_BASE_URL"),
+        authToken: requiredEnv("OPENROUTER_API_KEY"),
+      });
+
+    case "local":
+      return new Anthropic({
+        baseURL: requiredEnv("LOCAL_SUMMARY_BASE_URL"),
+        authToken: requiredEnv("LOCAL_SUMMARY_AUTH_TOKEN"),
+      });
+
+    case undefined:
+    case "":
+      return null;
+
+    default:
+      throw new Error("SUMMARY_PROVIDER must be anthropic, openrouter, or local.");
+  }
 };
 
 const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
@@ -112,24 +156,53 @@ export function userPrompt(i: SummaryInput): string {
 }
 
 /** Asks Claude for the summary. Throws SummaryRefused when it declines; other errors are worth retrying. */
-export const summarizeWithClaude: Summarizer = async (input) => {
-  const response = await anthropic().beta.messages.create({
-    model: SUMMARY_MODEL,
-    max_tokens: 16000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    system: SYSTEM,
-    output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
-    messages: [{ role: "user", content: userPrompt(input) }],
-  });
-  if (response.stop_reason === "refusal") throw new SummaryRefused("Claude declined to summarize this document.");
-  if (response.stop_reason === "max_tokens") throw new Error("The summary was cut off before it finished.");
-  const out = response.content.find((b) => b.type === "text");
-  if (!out || out.type !== "text") throw new SummaryRefused("No summary came back.");
-  return {
-    ...parseSummary(out.text),
-    model: response.model || SUMMARY_MODEL,
-    inputTokens: response.usage.input_tokens ?? 0,
-    outputTokens: response.usage.output_tokens ?? 0,
-  };
+export const summarizeWithAnthropic: Summarizer = async (input) => {
+  try {
+    const client = anthropic();
+    if (!client) throw new Error("SUMMARY_PROVIDER is not set, so summaries cannot be written.");
+    if(process.env.SUMMARY_PROVIDER?.trim() == "anthropic") {
+      // SDK call for anthropic
+      const response = await client.beta.messages.create({
+        model: summarymodel(),
+        max_tokens: 16000,
+        betas: ["server-side-fallback-2026-07-01"],
+        fallbacks: "default",
+        system: SYSTEM,
+        output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
+        messages: [{ role: "user", content: userPrompt(input) }],
+      });
+      if (response.stop_reason === "refusal") throw new SummaryRefused("Claude declined to summarize this document.");
+      if (response.stop_reason === "max_tokens") throw new Error("The summary was cut off before it finished.");
+      const out = response.content.find((b) => b.type === "text");
+      if (!out || out.type !== "text") throw new SummaryRefused("No summary came back.");
+      return {
+        ...parseSummary(out.text),
+        model: response.model || summarymodel(),
+        inputTokens: response.usage.input_tokens ?? 0,
+        outputTokens: response.usage.output_tokens ?? 0,
+      };
+    } else {
+      // SDK call for openrouter and local models
+      const response = await client.messages.create({
+        model: summarymodel(),
+        max_tokens: 16000,
+        system: SYSTEM,
+        output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
+        messages: [{ role: "user", content: userPrompt(input) }],
+      });
+      if (response.stop_reason === "refusal") throw new SummaryRefused("Claude declined to summarize this document.");
+      if (response.stop_reason === "max_tokens") throw new Error("The summary was cut off before it finished.");
+      const out = response.content.find((b) => b.type === "text");
+      if (!out || out.type !== "text") throw new SummaryRefused("No summary came back.");
+      return {
+        ...parseSummary(out.text),
+        model: response.model || summarymodel(),
+        inputTokens: response.usage.input_tokens ?? 0,
+        outputTokens: response.usage.output_tokens ?? 0,
+      };
+    }
+  } catch (e) {
+    console.error("Claude summarization failed:", e);
+    throw e;
+  }
 };

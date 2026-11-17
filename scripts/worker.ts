@@ -56,7 +56,7 @@ export type WorkerOptions = {
   sec: SecClient;
   /** Send alert emails. Off for the side-by-side check before going live. */
   sending: boolean;
-  /** Write AI summaries (needs ANTHROPIC_API_KEY). */
+  /** Write AI summaries (needs SUMMARY_PROVIDER). */
   summaries: boolean;
   /** Run every regular job once and return (the deploy check and the tests). */
   once: boolean;
@@ -72,8 +72,8 @@ async function main() {
   const sec = createSecClient(); // throws here, at start, when SEC_USER_AGENT is missing or a placeholder
   const db = new Pool({ ...connectionConfig(process.env.DATABASE_URL), max: 4 });
   const sending = (process.env.ALERTS_SENDING ?? "on").toLowerCase() !== "off";
-  const summaries = Boolean(process.env.ANTHROPIC_API_KEY);
-  console.log(`[worker] started. Sending email: ${sending ? "on" : "OFF"}. Summaries: ${summaries ? "on" : "OFF (no ANTHROPIC_API_KEY)"}. Email service: ${emailProvider().name}.`);
+  const summaries = Boolean(process.env.SUMMARY_PROVIDER?.trim());
+  console.log(`[worker] started. Sending email: ${sending ? "on" : "OFF"}. Summaries: ${summaries ? "on" : "OFF (no SUMMARY_PROVIDER)"}. Email service: ${emailProvider().name}.`);
   await runWorker({ db, sec, sending, summaries, once: process.env.WORKER_ONCE === "1" });
   await db.end();
   console.log("[worker] stopped.");
