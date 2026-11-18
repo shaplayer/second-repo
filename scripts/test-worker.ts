@@ -14,7 +14,7 @@ import { confirmSignup, signUp } from "../lib/alerts/subscriptions";
 import type { EmailMessage } from "../lib/email";
 import { SecHttpError, type SecClient } from "../lib/sec/client";
 import { SEC_TICKERS_EXCHANGE_URL } from "../lib/sec/companies";
-import { parseSummary } from "../lib/summaries/claude";
+import { parseSummaryJSON } from "../lib/summaries/parser";
 import { finish, test } from "./testing";
 import { withTestDatabase } from "./testing-db";
 import { runWorker } from "./worker";
@@ -63,7 +63,7 @@ async function main() {
         };
         console.error = (...a: unknown[]) => { errors.push(a.join(" ")); };
         await runWorker({ db, sec, sending: true, summaries: true, once: true, onceDaily: true, pressFetch,
-          summarizer: async () => ({ ...parseSummary(JSON.stringify({ headline: "Something happened", one_sentence: "It happened, in one sentence.", bullets: ["A fact."], tone: "Routine", importance: "Medium" })), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 }) });
+          summarizer: async () => ({ ...parseSummaryJSON(JSON.stringify({ headline: "Something happened", one_sentence: "It happened, in one sentence.", bullets: ["A fact."], tone: "Routine", importance: "Medium" })), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 }) });
         console.log = log;
         console.error = realError;
         const filings = Number((await db.query(`select count(*) as n from public.filings`)).rows[0].n);
@@ -88,7 +88,7 @@ async function main() {
           const m = /^\[email:console\] to=(\S+) subject=(".*")\n([\s\S]*)$/.exec(a.join(" "));
           if (m) mail.push({ to: [m[1]], subject: JSON.parse(m[2]), text: m[3] });
         };
-        const summarizer = async () => ({ ...parseSummary(JSON.stringify({ headline: "Something happened", one_sentence: "It happened, in one sentence.", bullets: ["A fact."], tone: "Routine", importance: "Medium" })), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 });
+        const summarizer = async () => ({ ...parseSummaryJSON(JSON.stringify({ headline: "Something happened", one_sentence: "It happened, in one sentence.", bullets: ["A fact."], tone: "Routine", importance: "Medium" })), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 });
         await runWorker({ db, sec, sending: true, summaries: true, once: true, onceDaily: true, pressFetch, summarizer });
         // The summary may not be readable from the stand-in SEC (it answers "not found"), so the alert waits out its
         // short grace period; age the events and run the sender again, as the passing of 90 seconds would.

@@ -38,7 +38,7 @@ import { runJob, setJobDetail } from "../lib/ingest/state";
 import { clearOldLimits } from "../lib/limits";
 import { createSecClient, type SecClient } from "../lib/sec/client";
 import { parseTickerFile, SEC_TICKERS_EXCHANGE_URL } from "../lib/sec/companies";
-import type { Summarizer } from "../lib/summaries/claude";
+import type { Summarizer } from "../lib/summaries/common";
 import { processSummaryJobs } from "../lib/summaries/jobs";
 
 const NY = "America/New_York";
