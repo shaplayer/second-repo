@@ -4,7 +4,9 @@
  */
 import assert from "node:assert/strict";
 import type { Client } from "pg";
-import { parseSummary, PROMPT_VERSION, SCHEMA, SummaryRefused, SYSTEM, userPrompt, type SummaryInput, type Summarizer } from "../lib/summaries/claude";
+import { PROMPT_VERSION, SCHEMA, SummaryRefused, SYSTEM, type SummaryInput, type Summarizer } from "../lib/summaries/common";
+import { parseSummaryJSON, parseSummaryText } from "../lib/summaries/parser";
+import { userPrompt } from "../lib/summaries/claude";
 import { MAX_DOCUMENT_CHARS, processSummaryJobs, requestSummary, shorten } from "../lib/summaries/jobs";
 import type { SecClient } from "../lib/sec/client";
 import { finish, test } from "./testing";
@@ -56,14 +58,36 @@ async function main() {
   });
 
   await test("what comes back is checked: unreadable, empty or advice-like answers are not kept", () => {
-    assert.deepEqual(parseSummary(JSON.stringify(good)), {
+    assert.deepEqual(parseSummaryJSON(JSON.stringify(good)), {
       headline: good.headline, oneSentence: good.one_sentence, bullets: good.bullets, tone: "Good news", importance: "High",
     });
-    assert.throws(() => parseSummary("not json"), SummaryRefused);
-    assert.throws(() => parseSummary(JSON.stringify({ ...good, headline: " " })), SummaryRefused);
-    assert.throws(() => parseSummary(JSON.stringify({ ...good, one_sentence: "Investors should buy the stock now." })), /read like advice/);
-    const odd = parseSummary(JSON.stringify({ ...good, tone: "Great", importance: "Huge", bullets: ["a", "b", "c", "d", "e", ""] }));
+    assert.throws(() => parseSummaryJSON("not json"), SummaryRefused);
+    assert.throws(() => parseSummaryJSON(JSON.stringify({ ...good, headline: " " })), SummaryRefused);
+    assert.throws(() => parseSummaryJSON(JSON.stringify({ ...good, one_sentence: "Investors should buy the stock now." })), /read like advice/);
+    const odd = parseSummaryJSON(JSON.stringify({ ...good, tone: "Great", importance: "Huge", bullets: ["a", "b", "c", "d", "e", ""] }));
     assert.deepEqual([odd.tone, odd.importance, odd.bullets.length], ["Routine", "Medium", 4]);
+  });
+
+  await test("plain-text summaries use meaningful sentences and skip Markdown section headings", () => {
+    const parsed = parseSummaryText(`**What the filing is about**
+
+Kornit Digital filed a report with the U.S. regulator. The report covers the third quarter of 2026.
+
+**Key performance numbers**
+- Sales were $94 million.
+- Profit rose 8%.
+
+WHAT IT SAYS
+- The company expects sales to grow next quarter.`);
+    assert.deepEqual(
+      [parsed.headline, parsed.oneSentence, parsed.bullets],
+      [
+        "Kornit Digital filed a report with the U.S. regulator",
+        "The report covers the third quarter of 2026.",
+        ["Sales were $94 million.", "Profit rose 8%.", "The company expects sales to grow next quarter."],
+      ],
+    );
+    assert.throws(() => parseSummaryText("**What the filing is about**"), SummaryRefused);
   });
 
   await test("a very long document keeps its opening and its results sections, and is marked as shortened", () => {
@@ -94,7 +118,7 @@ async function main() {
       const seen: SummaryInput[] = [];
       const summarizer: Summarizer = async (i) => {
         seen.push(i);
-        return { ...parseSummary(JSON.stringify(good)), model: "claude-opus-5-5", inputTokens: 1200, outputTokens: 90 };
+        return { ...parseSummaryJSON(JSON.stringify(good)), model: "claude-opus-5-5", inputTokens: 1200, outputTokens: 90 };
       };
       assert.deepEqual(await processSummaryJobs(db, sec, { summarizer }), { written: 1, failed: 0, retrying: 0 });
       assert.deepEqual([seen[0].company, seen[0].ticker, seen[0].typeLabel, seen[0].formCode, seen[0].shortened], ["Apple Inc.", "AAPL", "Quarterly report", "10-Q", false]);
@@ -126,7 +150,7 @@ async function main() {
       let got = "";
       const summarizer: Summarizer = async (i) => {
         got = i.text;
-        return { ...parseSummary(JSON.stringify(good)), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 };
+        return { ...parseSummaryJSON(JSON.stringify(good)), model: "claude-opus-5-5", inputTokens: 1, outputTokens: 1 };
       };
       assert.equal((await processSummaryJobs(db, sec, { summarizer })).written, 1);
       assert.ok(got.includes("COVER PAGE") && got.includes("=== Attached press release ===") && got.includes("PRESS RELEASE BODY"));

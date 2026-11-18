@@ -16,7 +16,8 @@ import { baseForm } from "../plain";
 import type { SecClient } from "../sec/client";
 import { parseFilingIndexHtml, pickPrimary } from "../sec/filing-index";
 import { htmlToText } from "../sec/text";
-import { PROMPT_VERSION, SummaryRefused, summarizeWithAnthropic, type Summarizer } from "./claude";
+import { summarizeWithAnthropic } from "./claude";
+import { PROMPT_VERSION, SummaryRefused, type Summarizer } from "./common";
 
 type Db = Pool | PoolClient | Client;
 
