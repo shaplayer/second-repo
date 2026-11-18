@@ -3,7 +3,9 @@
  * this machine.   npx tsx scripts/test-summaries.ts [--if-available]
  */
 import assert from "node:assert/strict";
-import type { Client } from "pg";
+import { setTimeout as sleep } from "node:timers/promises";
+import { Pool, type Client } from "pg";
+import { connectionConfig } from "../lib/db/connect";
 import { PROMPT_VERSION, SCHEMA, SummaryRefused, SYSTEM, type SummaryInput, type Summarizer } from "../lib/summaries/common";
 import { parseSummaryJSON, parseSummaryText } from "../lib/summaries/parser";
 import { userPrompt } from "../lib/summaries/claude";
@@ -11,6 +13,7 @@ import { MAX_DOCUMENT_CHARS, processSummaryJobs, requestSummary, shorten } from 
 import type { SecClient } from "../lib/sec/client";
 import { finish, test } from "./testing";
 import { withTestDatabase } from "./testing-db";
+import { runSummaryLoop } from "./worker";
 
 const AAPL = 320193;
 const folder = (acc: string) => `https://www.sec.gov/Archives/edgar/data/${AAPL}/${acc.replace(/-/g, "")}`;
@@ -102,7 +105,7 @@ WHAT IT SAYS
     for (const part of ["OPENING", "MDNA-BODY", "INCOME-BODY", "part of the document is left out"]) assert.ok(cut.text.includes(part), part);
   });
 
-  const ran = await withTestDatabase("summaries", async (db) => {
+  const ran = await withTestDatabase("summaries", async (db, url) => {
     const visitor = { visitor: "203.0.113.5" };
 
     await test("opening an item puts it on the list once; the page is told to wait", async () => {
@@ -193,6 +196,51 @@ WHAT IT SAYS
       const state = await requestSummary(db, `n:${n.rows[0].id}`, visitor);
       assert.equal(state.status, "unavailable");
       assert.equal(Number((await db.query(`select count(*) as n from public.summary_jobs where news_id is not null`)).rows[0].n), 0);
+    });
+
+    await test("a reader wakes the idle worker before its next poll without waiting for the summary", async () => {
+      const acc = "0000320193-26-000206";
+      await addFiling(db, acc, "10-Q", { primary: "q.htm" });
+      const sec = fakeSec({ [`${folder(acc)}/q.htm`]: "<p>" + "Quarterly results. ".repeat(20) + "</p>" });
+      const pool = new Pool({ ...connectionConfig(url), max: 2 });
+      const stop = new AbortController();
+      let calls = 0;
+      let releaseSummary!: () => void;
+      const blocked = new Promise<void>((resolve) => { releaseSummary = resolve; });
+      const loop = runSummaryLoop(pool, sec, stop.signal, {
+        pollMs: 30_000,
+        summarizer: async () => {
+          calls++;
+          await blocked;
+          return { ...parseSummaryJSON(JSON.stringify(good)), model: "fake", inputTokens: 1, outputTokens: 1 };
+        },
+      });
+      const waitFor = async (condition: () => boolean | Promise<boolean>, failure: string) => {
+        const deadline = Date.now() + 3_000;
+        while (!(await condition())) {
+          assert.ok(Date.now() < deadline, failure);
+          await sleep(20);
+        }
+      };
+      try {
+        await waitFor(async () => (await db.query(
+          `select 1 from public.job_state where job = 'summaries' and last_success_at is not null`,
+        )).rows.length === 1, "the initial sweep did not complete");
+        const pending = { status: "pending" };
+        assert.deepEqual(await requestSummary(db, `f:${acc}`, visitor), pending);
+        await waitFor(() => calls > 0, "the worker did not wake before its 30-second poll");
+        assert.deepEqual(await requestSummary(db, `f:${acc}`, visitor), pending);
+      } finally {
+        stop.abort();
+        releaseSummary();
+        try {
+          await loop;
+        } finally {
+          await pool.end();
+        }
+      }
+      assert.equal(calls, 1);
+      assert.equal((await requestSummary(db, `f:${acc}`, visitor)).status, "ready");
     });
 
     await test("one visitor cannot run up the bill: new summaries stop at the hourly limit", async () => {

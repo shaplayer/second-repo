@@ -3,7 +3,7 @@
  * opened, or for a company with active alert subscriptions. Nothing market-wide.
  *
  * - A page never calls Claude. It asks requestSummary(), which answers from the database or puts the
- *   item on the list; the worker's processSummaryJobs() does the writing.
+ *   item on the list and wakes the worker; processSummaryJobs() does the writing.
  * - An item is on the list at most once (the table's unique rules), and a job is claimed with a row
  *   lock, so two workers never write the same summary.
  * - Insider trades are summarised from the filing's own data by the ingestion worker, without AI.
@@ -32,14 +32,14 @@ const NOT_ALLOWED = "This source doesn't let us summarize its releases. The head
 const FAILED = "We couldn't write a summary for this one. The original has the full details.";
 const BUSY = "Summaries are busy right now. Try again in a little while, or read the original.";
 
+export const SUMMARY_JOB_CHANNEL = "summary_job_queued";
+
 /**
  * Called when someone opens an item. Returns the summary if there is one, otherwise puts the item on
  * the waiting list (within the limits that keep one visitor, or a flood of them, from running up the bill).
  */
 export async function requestSummary(db: Db, id: string, opts: { visitor: string | null }): Promise<SummaryState> {
-  console.log("Requesting summary for", id)
   const item = await getFeedItem(db, id);
-  console.log(item)
   if (!item) return { status: "unavailable", reason: "We couldn't find that item." };
   if (item.summary) return { status: "ready", item };
   if (!item.canSummarize) return { status: "unavailable", reason: NOT_ALLOWED };
@@ -63,7 +63,14 @@ export async function requestSummary(db: Db, id: string, opts: { visitor: string
   if (!(await allow(db, LIMITS.summaryPerVisitor, opts.visitor ?? "unknown")) || !(await allow(db, LIMITS.summaryPerDay, "all"))) {
     return { status: "unavailable", reason: BUSY };
   }
-  await db.query(`insert into public.summary_jobs (${col}, reason) values ($1, 'viewed') on conflict do nothing`, [ref]);
+  // Notify only when a new job is committed, not on repeat requests or conflicting inserts.
+  await db.query(
+    `with queued as (
+       insert into public.summary_jobs (${col}, reason) values ($1, 'viewed') on conflict do nothing returning 1
+     )
+     select pg_notify($2, '') from queued`,
+    [ref, SUMMARY_JOB_CHANNEL],
+  );
   return { status: "pending" };
 }
 

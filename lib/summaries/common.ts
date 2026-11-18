@@ -62,3 +62,30 @@ export class SummaryRefused extends Error {}
 export type Summarizer = (input: SummaryInput) => Promise<SummaryOutput>;
 
 export const clean = (s: unknown, max: number) => String(s ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+
+export const debugFetch = async (url: string | URL | Request, init?: RequestInit) => {
+  const startedAt = performance.now();
+  console.log('--- RAW REQUEST ---');
+  console.log('URL:', url);
+  console.log('Method:', init?.method);
+  console.log('Headers:', init?.headers);
+  console.log('Body:', init?.body);
+
+  const response = await globalThis.fetch(url, init);
+  const headersMs = performance.now() - startedAt;
+
+  // Clone the response so you can read the body without consuming the stream for the SDK
+  const cloned = response.clone();
+  console.log('--- RAW RESPONSE ---');
+  console.log('Status:', response.status);
+  console.log('Body:', await cloned.text());
+  const bodyMs = performance.now() - startedAt;
+
+  console.log("HTTP request timing:", {
+    status: response.status,
+    headersMs: Math.round(headersMs),
+    fullResponseMs: Math.round(bodyMs),
+  });
+
+  return response;
+};

@@ -9,7 +9,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { SummaryInput, Summarizer } from "./common";
-import { SummaryRefused, SCHEMA, SYSTEM } from "./common";
+import { SummaryRefused, SCHEMA, SYSTEM, debugFetch } from "./common";
 import { parseSummaryJSON, parseSummaryText } from "./parser";
 
 function requiredEnv(name: string): string {
@@ -40,7 +40,6 @@ const anthropic = () => {
   switch (provider) {
     case "anthropic":
       return new Anthropic({
-        baseURL: "https://api.anthropic.com",
         apiKey: requiredEnv("ANTHROPIC_API_KEY"),
       });
 
@@ -54,26 +53,7 @@ const anthropic = () => {
       return new Anthropic({
         baseURL: requiredEnv("DO_BASE_URL"),
         authToken: requiredEnv("DO_INFERENCE_KEY"),
-        /**
-         * Enable to log raw requests and responses for debugging purposes.
-         */
-        // fetch: async (url, init) => {
-        //   console.log('--- RAW REQUEST ---');
-        //   console.log('URL:', url);
-        //   console.log('Method:', init?.method);
-        //   console.log('Headers:', init?.headers);
-        //   console.log('Body:', init?.body);
-
-        //   const response = await globalThis.fetch(url, init);
-
-        //   // Clone the response so you can read the body without consuming the stream for the SDK
-        //   const cloned = response.clone();
-        //   console.log('--- RAW RESPONSE ---');
-        //   console.log('Status:', response.status);
-        //   console.log('Body:', await cloned.text());
-
-        //   return response;
-        // },
+        // fetch: debugFetch, // Enable to log raw requests and responses for debugging purposes.
       });
     case "local":
       return new Anthropic({
@@ -99,12 +79,10 @@ export function userPrompt(i: SummaryInput): string {
 
 /** Asks Claude for the summary. Throws SummaryRefused when it declines; other errors are worth retrying. */
 export const summarizeWithAnthropic: Summarizer = async (input) => {
-  console.log("Summarizing document:", input.company, input.ticker, process.env.SUMMARY_PROVIDER?.trim());
   try {
     const client = anthropic();
     if (!client) throw new Error("SUMMARY_PROVIDER is not set, so summaries cannot be written.");
     if(process.env.SUMMARY_PROVIDER?.trim() == "anthropic") {
-      console.log("Using Anthropic provider.");
       // SDK call for anthropic
       const response = await client.beta.messages.create({
         model: summarymodel(),

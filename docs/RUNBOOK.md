@@ -31,7 +31,7 @@ with `main`.)
 
 | What | Where to find it |
 |---|---|
-| The Supabase connection string | Supabase dashboard, your project, **Connect**, "Session pooler" (port 5432). Not the transaction pooler (port 6543). |
+| The Supabase connection string | Supabase dashboard, your project, **Connect**, "Session pooler" (port 5432). Not the transaction pooler (port 6543). The summary worker uses a dedicated session to listen for new reader-requested jobs and still polls every two seconds as a fallback. |
 | The data site's database connection string | The `DATABASE_URL` line in the `.env` file the data site uses on the Droplet today |
 | Supabase's certificate file | Supabase dashboard, your project, **Database settings**, "SSL Configuration", **Download certificate**. Save it on the Droplet, for example as `~/supabase-ca.crt` |
 | Your SEC contact line | Your real company name and an email address someone reads, for example `Acme Research LLC sec-contact@acme-research.com` |
