@@ -15,7 +15,8 @@
     "backup": "bash scripts/backup.sh",
     "worker": "tsx scripts/worker.ts",
     "dev:seed": "tsx scripts/dev-seed.ts",
-    "admin:grant": "tsx scripts/admin-grant.ts"
+    "admin:grant": "tsx scripts/admin-grant.ts",
+    "env:bkup": "ts=$(date +%Y%m%d%H%M%S); cp .env \".env.$ts.bkup\" && printf 'Environment backup created at .env.%s.bkup\\n' \"$ts\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.8.0",

@@ -21,7 +21,7 @@ export default async function AuthCallback({ searchParams }: { searchParams: Pro
           <>
             <h1 className="m-0 text-[32px] font-extrabold tracking-[-0.03em]">Sign in as {maskEmail(who.email)}?</h1>
             <p className="m-0 text-base text-ink-2">One more tap and you&apos;re in.</p>
-            <form method="post" action="/api/auth/verify">
+            <form method="POST" action="/api/auth/verify">
               <input type="hidden" name="token" value={token} />
               <button type="submit" autoFocus className="btn btn-brand btn-lg h-14 px-8 text-[17px]">Sign in</button>
             </form>

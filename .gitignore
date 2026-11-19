@@ -5,6 +5,7 @@ out/
 next-env.d.ts
 .env
 .env*.local
+.env*.bkup
 npm-debug.log*
 .DS_Store
 
