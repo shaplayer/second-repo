@@ -9,5 +9,5 @@ export async function POST(req: Request) {
     await destroySession(db(), (await cookies()).get(SESSION_COOKIE)?.value).catch(() => {});
     await clearSessionCookie();
   }
-  return NextResponse.redirect(new URL("/", req.url), 303);
+  return NextResponse.redirect(new URL("/", process.env.NEXT_PUBLIC_SITE_URL), 303);
 }
