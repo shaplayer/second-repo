@@ -232,3 +232,13 @@ npm run lint   # typecheck
 npm test       # feed parser tests
 npm run build
 ```
+
+
+## Current state
+### Nov 19 2026
+- Email login with link ✅
+- Logout ✅
+- Summaries ✅
+- Alerts
+- Push notifications
+- Live search for tickers
