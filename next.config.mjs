@@ -13,7 +13,6 @@ const csp = [
   "font-src 'self' data:",
   `connect-src 'self'${dev ? " ws:" : ""}`,
   "base-uri 'self'",
-  "form-action 'self' https://home.bigstocks.com",
   "frame-ancestors 'none'",
 ].join("; ");
 

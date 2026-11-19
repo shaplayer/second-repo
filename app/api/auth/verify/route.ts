@@ -8,7 +8,7 @@ import { clientIp, sameOrigin, setSessionCookie, userAgent } from "@/lib/web/req
  * link cannot use the link up before the person does. The code works once.
  */
 export async function POST(req: Request) {
-  const to = (path: string) => NextResponse.redirect(new URL(path, process.env.NEXT_PUBLIC_BASE_URL), 303);
+  const to = (path: string) => NextResponse.redirect(new URL(path, process.env.NEXT_PUBLIC_SITE_URL), 303);
   if (!sameOrigin(req)) return to("/sign-in?problem=expired");
   const form = await req.formData().catch(() => null);
   const [ip, ua] = await Promise.all([clientIp(), userAgent()]);
