@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { currentUser } from "@/lib/web/request";
 import { SearchIcon } from "@/components/ui/Icons";
+import { TickerSearch } from "@/components/ui/TickerSearch";
 
 const linkCls = "text-ink-2 no-underline hover:text-ink";
 
@@ -22,12 +23,10 @@ export async function Header({ search = true }: { search?: boolean }) {
         BigStocks
       </Link>
       {search && (
-        <form role="search" action="/search" className="order-3 flex h-[46px] w-full items-center gap-2 rounded-[14px] bg-white pl-3.5 pr-1.5 shadow-[0_0_0_1px_#dfe9e3] md:order-none md:w-auto md:max-w-[440px] md:flex-1">
-          <label htmlFor="hd-q" className="sr-only">Search a stock</label>
-          <SearchIcon className="h-[18px] w-[18px] flex-none text-ink-2" />
-          <input id="hd-q" name="q" type="search" placeholder="Search a stock" autoComplete="off"
-            className="h-10 min-w-0 flex-1 border-0 bg-transparent text-[15px] outline-none" />
-        </form>
+        <TickerSearch id="hd-q" label="Search a stock" placeholder="Search a stock" action="/search"
+          formClassName="order-3 flex h-[46px] w-full items-center gap-2 rounded-[14px] bg-white pl-3.5 pr-1.5 shadow-[0_0_0_1px_#dfe9e3] md:order-none md:w-auto md:max-w-[440px] md:flex-1"
+          inputClassName="h-10 text-[15px]"
+          leading={<SearchIcon className="h-[18px] w-[18px] flex-none text-ink-2" />} />
       )}
       <nav aria-label="Main" className="ml-auto hidden items-center gap-x-5 text-[15px] font-semibold md:flex">
         {links.map((l) => (
