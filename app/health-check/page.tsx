@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Shell } from "@/components/site/Shell";
 import { HealthPill } from "@/components/ui/Badges";
+import { TickerSearch } from "@/components/ui/TickerSearch";
 import { growthRulesEnabled } from "@/lib/config";
 import { popularChecks, type CheckedCompany } from "@/lib/data/companies";
 import { db } from "@/lib/db";
@@ -65,12 +66,10 @@ export default async function HealthCheckPage() {
         <p className="m-0 max-w-[640px] text-[17px] leading-[1.55] text-ink-2">
           A simple Strong, Mixed or Weak, read from the company&apos;s own SEC filings. It looks at the business, not the stock price.
         </p>
-        <form role="search" action="/search" className="flex w-full max-w-[560px] gap-2 rounded-[20px] bg-white p-2 shadow-[0_16px_40px_rgba(12,60,35,0.12),0_0_0_1px_#dfe9e3]">
-          <label htmlFor="hc-q" className="sr-only">Check a stock</label>
-          <input id="hc-q" name="q" type="search" required placeholder="Check any stock: ticker or name" autoComplete="off"
-            className="h-[52px] min-w-0 flex-1 border-0 bg-transparent px-2 text-[15px] outline-none md:px-3 md:text-[17px]" />
-          <button type="submit" className="btn btn-brand h-[52px] rounded-[14px] px-4 text-base font-extrabold md:px-[22px]">Check</button>
-        </form>
+        <TickerSearch id="hc-q" label="Check a stock" placeholder="Check any stock: ticker or name" required action="/search"
+          formClassName="flex w-full max-w-[560px] gap-2 rounded-[20px] bg-white p-2 shadow-[0_16px_40px_rgba(12,60,35,0.12),0_0_0_1px_#dfe9e3]"
+          inputClassName="h-[52px] px-2 text-[15px] md:px-3 md:text-[17px]"
+          button={{ className: "btn btn-brand h-[52px] rounded-[14px] px-4 text-base font-extrabold md:px-[22px]", content: "Check" }} />
       </section>
 
       <section aria-label="What the results mean" className="mx-auto grid w-full max-w-[900px] grid-cols-2 gap-3.5 px-4 pb-7 pt-2 md:grid-cols-4 md:px-8">

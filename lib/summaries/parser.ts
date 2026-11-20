@@ -1,6 +1,6 @@
 const sentences = new Intl.Segmenter("en", { granularity: "sentence" });
 import type { SummaryOutput } from "./common";
-import { clean } from "./common";
+import { clean, SummaryRefused } from "./common";
 export const SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -21,9 +21,6 @@ export const SCHEMA = {
     importance: { type: "string", enum: ["High", "Medium", "Low"], description: "How much a typical shareholder should care." },
   },
 } as const;
-
-/** The model declined (and so did the fallback), or the answer could not be used. Not worth retrying. */
-export class SummaryRefused extends Error {}
 
 /** Checks and tidies what the model returned. Throws SummaryRefused when it cannot be shown. */
 export function parseSummaryJSON(textcontent: string): Pick<SummaryOutput, "headline" | "oneSentence" | "bullets" | "tone" | "importance"> {

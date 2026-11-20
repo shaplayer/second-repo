@@ -40,6 +40,7 @@ import { companyAtomUrl, companyFactsUrl, newYorkClockToIso, parseCompanyAtom, p
 import { htmlToText, releaseTitle } from "../lib/sec/text";
 import { SecUserAgentError } from "../lib/sec/user-agent";
 import { finish, test } from "./testing";
+import "./load-env";
 
 // Compile-time check: every kind of pg handle fits what the writers ask for.
 export const anyHandle = (x: Client | Pool | PoolClient): Db => x;

@@ -75,70 +75,69 @@ export async function pollCurrentFilings(
   const newFilings: string[] = [];
   let fetchedPages = 0;
   for (let page = 0; page < maxPages; page++) {
+    console.log(`Fetching current filings page ${currentFeedUrl(page * PAGE_SIZE, PAGE_SIZE)}`);
     const xml = await sec.text(currentFeedUrl(page * PAGE_SIZE, PAGE_SIZE));
-    fetchedPages++;
-    const listed = (xml.match(/<entry\b/gi) ?? []).length;
-    if (listed === 0) break;
-    const entries = parseCurrentFeed(xml);
-
-    const ciks = [...new Set(entries.filter((e) => isCollectedForm(e.form)).map((e) => e.cik))];
-    const known = new Map<number, Known>();
-    if (ciks.length) {
-      const { rows } = await db.query<{ cik: string; exchange: string | null; ticker: string | null }>(
-        `select cik, exchange, ticker from public.companies where cik = any($1::bigint[])`,
-        [ciks],
-      );
-      for (const r of rows) known.set(Number(r.cik), { exchange: r.exchange, ticker: r.ticker });
-    }
-
-    const chosen = chooseEntries(entries, known);
-    if (chosen.length) {
-      const { rows: have } = await db.query<{ accession: string }>(
-        `select accession from public.filings where accession = any($1::text[])`,
-        [chosen.map((e) => e.accession)],
-      );
-      const stored = new Set(have.map((r) => r.accession));
-      const fresh = chosen.filter((e) => !stored.has(e.accession));
-      // A page with nothing new on it: everything older is already here.
-      if (!fresh.length) break;
-
-      const strangers = new Map<number, string>();
-      for (const e of fresh) if (!known.has(e.cik) && !strangers.has(e.cik)) strangers.set(e.cik, e.companyName.slice(0, 300));
-      if (strangers.size) {
-        await db.query(
-          `insert into public.companies (cik, name)
-           select x.cik, x.name from jsonb_to_recordset($1::jsonb) as x(cik bigint, name text)
-           on conflict (cik) do nothing`,
-          [JSON.stringify([...strangers].map(([cik, name]) => ({ cik, name })))],
+      fetchedPages++;
+      const listed = (xml.match(/<entry\b/gi) ?? []).length;
+      if (listed === 0) break;
+      const entries = parseCurrentFeed(xml);
+      const ciks = [...new Set(entries.filter((e) => isCollectedForm(e.form)).map((e) => e.cik))];
+      const known = new Map<number, Known>();
+      if (ciks.length) {
+        const { rows } = await db.query<{ cik: string; exchange: string | null; ticker: string | null }>(
+          `select cik, exchange, ticker from public.companies where cik = any($1::bigint[])`,
+          [ciks],
         );
+        for (const r of rows) known.set(Number(r.cik), { exchange: r.exchange, ticker: r.ticker });
       }
-
-      const rows = fresh.map((e) => {
-        const exchange = known.get(e.cik)?.exchange;
-        return {
-          accession: e.accession,
-          cik: e.cik,
-          form: e.form,
-          items: e.items,
-          accepted_at: e.acceptedAt,
-          filed_date: isRealDate(e.filedDate) ? e.filedDate : newYorkDate(e.acceptedAt),
-          index_url: e.indexUrl,
-          category: filingCategory({ form: e.form, items: e.items }, { listed: Boolean(exchange && exchange.trim()) }),
-        };
-      });
-      const inserted = await db.query<{ accession: string }>(
-        `insert into public.filings (accession, cik, form, items, accepted_at, filed_date, primary_url, index_url, category)
-         select x.accession, x.cik, x.form, array(select jsonb_array_elements_text(x.items)), x.accepted_at, x.filed_date,
-                x.index_url, x.index_url, x.category
-           from jsonb_to_recordset($1::jsonb)
-             as x(accession text, cik bigint, form text, items jsonb, accepted_at timestamptz, filed_date date, index_url text, category text)
-         on conflict (accession) do nothing
-         returning accession`,
-        [JSON.stringify(rows)],
-      );
-      for (const r of inserted.rows) newFilings.push(r.accession);
-    }
-    if (listed < PAGE_SIZE) break; // the feed has no more pages
+      const chosen = chooseEntries(entries, known);
+      if (chosen.length) {
+        const { rows: have } = await db.query<{ accession: string }>(
+          `select accession from public.filings where accession = any($1::text[])`,
+          [chosen.map((e) => e.accession)],
+        );
+        const stored = new Set(have.map((r) => r.accession));
+        const fresh = chosen.filter((e) => !stored.has(e.accession));
+        // A page with nothing new on it: everything older is already here.
+        if (!fresh.length) break;
+  
+        const strangers = new Map<number, string>();
+        for (const e of fresh) if (!known.has(e.cik) && !strangers.has(e.cik)) strangers.set(e.cik, e.companyName.slice(0, 300));
+        if (strangers.size) {
+          await db.query(
+            `insert into public.companies (cik, name)
+             select x.cik, x.name from jsonb_to_recordset($1::jsonb) as x(cik bigint, name text)
+             on conflict (cik) do nothing`,
+            [JSON.stringify([...strangers].map(([cik, name]) => ({ cik, name })))],
+          );
+        }
+  
+        const rows = fresh.map((e) => {
+          const exchange = known.get(e.cik)?.exchange;
+          return {
+            accession: e.accession,
+            cik: e.cik,
+            form: e.form,
+            items: e.items,
+            accepted_at: e.acceptedAt,
+            filed_date: isRealDate(e.filedDate) ? e.filedDate : newYorkDate(e.acceptedAt),
+            index_url: e.indexUrl,
+            category: filingCategory({ form: e.form, items: e.items }, { listed: Boolean(exchange && exchange.trim()) }),
+          };
+        });
+        const inserted = await db.query<{ accession: string }>(
+          `insert into public.filings (accession, cik, form, items, accepted_at, filed_date, primary_url, index_url, category)
+           select x.accession, x.cik, x.form, array(select jsonb_array_elements_text(x.items)), x.accepted_at, x.filed_date,
+                  x.index_url, x.index_url, x.category
+             from jsonb_to_recordset($1::jsonb)
+               as x(accession text, cik bigint, form text, items jsonb, accepted_at timestamptz, filed_date date, index_url text, category text)
+           on conflict (accession) do nothing
+           returning accession`,
+          [JSON.stringify(rows)],
+        );
+        for (const r of inserted.rows) newFilings.push(r.accession);
+      }
+      if (listed < PAGE_SIZE) break; // the feed has no more pages
   }
   return { fetchedPages, newFilings };
 }

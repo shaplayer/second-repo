@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/manrope";
 import "./globals.css";
 import { siteUrl } from "@/lib/config";
+import { QueryProvider } from "@/components/ui/QueryProvider";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl()),
@@ -27,7 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-white focus:px-4 focus:py-2">
           Skip to the main content
         </a>
-        {children}
+        <QueryProvider>{children}</QueryProvider>
       </body>
     </html>
   );

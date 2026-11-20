@@ -1,6 +1,4 @@
 @import "tailwindcss";
-/* The old Vercel app is kept for reference only (see legacy/vercel-app/README-LEGACY.md): never scan it for class names. */
-@source not "../legacy";
 
 /*
  * The approved design (plan decision 8): light only, Manrope, white with a soft mint glow at the top,

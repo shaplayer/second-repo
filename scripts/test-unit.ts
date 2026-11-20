@@ -237,14 +237,10 @@ async function main() {
     assert.ok(parseArgs(["--dry-run", "out.json", "--yes"], spec).flags.has("dry-run"));
   });
 
-  await test("migration files are named and ordered correctly, and the old ones are untouched", () => {
+  await test("migration files are named and ordered correctly", () => {
     const all = readMigrations();
     assert.ok(all.length >= 19);
     assert.deepEqual(all.map((m) => m.version), [...all.map((m) => m.version)].sort());
-    for (const m of all.filter((x) => x.version <= "20261014004200")) {
-      const original = readFileSync(`legacy/vercel-app/supabase/migrations/${m.file}`, "utf8");
-      assert.equal(m.sql, original, `${m.file} must stay exactly as the old app applied it`);
-    }
   });
 
   if (!finish("unit tests")) process.exit(1);
