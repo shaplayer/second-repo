@@ -21,6 +21,7 @@ import {
   NET_INCOME_TAGS, firstReportFiled, isBlankCheck, isFund, lostMoneyFromOperations, readMeasures, shareGrowth, ttmOf, verdictOf,
 } from "../lib/health/score";
 import { finish, test } from "./testing";
+import "./load-env";
 
 /* ------------------------------------------------------------ hand-made facts */
 

@@ -76,8 +76,7 @@ export async function pollCurrentFilings(
   let fetchedPages = 0;
   for (let page = 0; page < maxPages; page++) {
     console.log(`Fetching current filings page ${currentFeedUrl(page * PAGE_SIZE, PAGE_SIZE)}`);
-    try {
-      const xml = await sec.text(currentFeedUrl(page * PAGE_SIZE, PAGE_SIZE));
+    const xml = await sec.text(currentFeedUrl(page * PAGE_SIZE, PAGE_SIZE));
       fetchedPages++;
       const listed = (xml.match(/<entry\b/gi) ?? []).length;
       if (listed === 0) break;
@@ -139,10 +138,6 @@ export async function pollCurrentFilings(
         for (const r of inserted.rows) newFilings.push(r.accession);
       }
       if (listed < PAGE_SIZE) break; // the feed has no more pages
-    } catch (error) {
-      console.error('Error fetching filings:', error);
-      break;
-    }
   }
   return { fetchedPages, newFilings };
 }

@@ -24,7 +24,9 @@ import { migrate, readMigrations } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
 import { parseTickerFile, type TickerRow } from "../lib/sec/companies";
 import { finish, test } from "./testing";
+import "./load-env";
 
+console.log(process.env.TEST_PG_URL)
 const ADMIN_URL =
   process.env.TEST_PG_URL ??
   `postgresql://${encodeURIComponent(process.env.PGUSER ?? os.userInfo().username)}@localhost/postgres?host=/var/run/postgresql`;
