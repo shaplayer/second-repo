@@ -6,7 +6,7 @@ import type { FeedItem, FeedSummary } from "@/lib/data/feed";
 import { groupInsiderTrades, insiderGroupText } from "@/lib/feed-groups";
 import { CATEGORY_LABEL, type Category } from "@/lib/plain";
 import { TypeBadge } from "@/components/ui/Badges";
-import { PauseIcon, PlayIcon } from "@/components/ui/Icons";
+import { BellIcon, PauseIcon, PlayIcon } from "@/components/ui/Icons";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { TimeAgo } from "@/components/ui/TimeAgo";
 import { clockET } from "@/lib/time";
@@ -297,8 +297,14 @@ export function FeedList(props: FeedListProps) {
             followed ? (
               <span className="btn btn-soft cursor-default">Alerts on ✓</span>
             ) : (
-              <button type="button" onClick={() => follow(it)} aria-expanded={signedIn ? undefined : asking === it.id} className="btn btn-dark">
-                Alert me on {tickerOf(it)}
+              <button
+                type="button"
+                onClick={() => follow(it)}
+                aria-label={`Get email alerts for ${tickerOf(it)}`}
+                title={`Get email alerts for ${tickerOf(it)}`}
+                aria-expanded={signedIn ? undefined : asking === it.id}
+                className="btn btn-dark h-11 w-11 p-0">
+                <BellIcon className="h-5 w-5 shrink-0" />
               </button>
             )
           )}
@@ -412,8 +418,14 @@ export function FeedList(props: FeedListProps) {
                   followed ? (
                     <span className="btn btn-soft cursor-default">Alerts on ✓</span>
                   ) : (
-                    <button type="button" onClick={() => follow(firstItem)} aria-expanded={signedIn ? undefined : asking === firstItem.id} className="btn btn-dark">
-                      Alert me on {tickerOf(firstItem)}
+                    <button
+                      type="button"
+                      onClick={() => follow(firstItem)}
+                      aria-label={`Get email alerts for ${tickerOf(firstItem)}`}
+                      title={`Get email alerts for ${tickerOf(firstItem)}`}
+                      aria-expanded={signedIn ? undefined : asking === firstItem.id}
+                      className="btn btn-dark h-11 w-11 p-0">
+                      <BellIcon className="h-5 w-5 shrink-0" />
                     </button>
                   )
                 )}

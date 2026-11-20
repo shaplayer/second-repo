@@ -20,6 +20,12 @@ Ad packages are not on the homepage; `/advertise` is linked from the footer only
 each feed row. With a ticker it offers that company's press releases & SEC filings plus free stock picks (both checked),
 using one combined SMS consent (`smsCombinedConsentText` in `lib/sms-consent.ts`, stored with each sign-up).
 
+## Ticker search
+
+The header, homepage, health check, and not-found page use [TickerSearch](./components/ui/TickerSearch.tsx).
+Each caller passes `action="/search"`. The form sends a GET request to `/search?q=...`, where company
+results and exact-ticker redirects are handled.
+
 ## Run locally
 
 ```bash

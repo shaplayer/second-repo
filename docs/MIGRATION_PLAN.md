@@ -362,7 +362,7 @@ The migration files are in `supabase/migrations/` (`20261112…`). They follow t
 3. Set `SEC_USER_AGENT` to the real company name and a monitored email in every environment.
 4. Code home: the merged app lives in **this repo** (`second-repo`). The App's code is copied in under the same Next.js app (both are Next 15). The App repo is kept read-only for history.
 
-**Status (Nov 12): built.** A frozen copy of the old app is in `legacy/vercel-app/` (reference only; nothing imports it). `scripts/backup.sh` takes the backups and the consent export. Every new script refuses to contact the SEC without a real `SEC_USER_AGENT`; there is no default. The owner's steps (backups, keys) are in `docs/RUNBOOK.md`.
+**Status (Nov 12): built.** The old app has been retired from the repository. `scripts/backup.sh` takes the backups and the consent export. Every new script refuses to contact the SEC without a real `SEC_USER_AGENT`; there is no default. The owner's steps (backups, keys) are in `docs/RUNBOOK.md`.
 
 ### Phase 1: schema and backfill
 1. Create the nine tables plus the renames above as migration files (one file per change; old migrations are never edited).

@@ -4,6 +4,7 @@ import { SignupForm } from "@/components/signup/SignupForm";
 import { Shell } from "@/components/site/Shell";
 import { Countdown } from "@/components/ui/Countdown";
 import { SearchIcon } from "@/components/ui/Icons";
+import { TickerSearch } from "@/components/ui/TickerSearch";
 import { TimeAgo } from "@/components/ui/TimeAgo";
 import { clockET } from "@/lib/time";
 import { audience } from "@/lib/config";
@@ -55,15 +56,14 @@ export default async function Home() {
         <p className="m-0 text-[15px] leading-[1.55] text-ink-2 md:text-lg">
           Every press release and SEC filing, explained in one sentence, the moment it posts.
         </p>
-        <form role="search" action="/search" className="mt-1.5 flex w-full gap-2 rounded-[18px] bg-white p-1.5 shadow-[0_20px_50px_rgba(12,60,35,0.14),0_0_0_1px_#dfe9e3] md:rounded-[22px] md:p-2">
-          <label htmlFor="home-q" className="sr-only">Ticker or company</label>
-          <span aria-hidden="true" className="hidden items-center pl-3 text-ink-2 md:flex"><SearchIcon className="h-[22px] w-[22px]" /></span>
-          <input id="home-q" name="q" type="search" required placeholder="Ticker or company, e.g. AAPL" autoComplete="off"
-            className="h-[50px] min-w-0 flex-1 border-0 bg-transparent px-2.5 text-[17px] outline-none md:h-[60px] md:text-xl" />
-          <button type="submit" className="btn btn-brand h-[50px] rounded-[13px] px-4 text-base font-extrabold md:h-[60px] md:rounded-2xl md:px-7">
-            <SearchIcon className="h-5 w-5 md:hidden" /><span className="sr-only md:not-sr-only">Search</span>
-          </button>
-        </form>
+        <TickerSearch id="home-q" label="Ticker or company" placeholder="Ticker or company, e.g. AAPL" required action="/search"
+          formClassName="mt-1.5 flex w-full gap-2 rounded-[18px] bg-white p-1.5 shadow-[0_20px_50px_rgba(12,60,35,0.14),0_0_0_1px_#dfe9e3] md:rounded-[22px] md:p-2"
+          inputClassName="h-[50px] px-2.5 text-[17px] md:h-[60px] md:text-xl"
+          leading={<span aria-hidden="true" className="hidden items-center pl-3 text-ink-2 md:flex"><SearchIcon className="h-[22px] w-[22px]" /></span>}
+          button={{
+            className: "btn btn-brand h-[50px] rounded-[13px] px-4 text-base font-extrabold md:h-[60px] md:rounded-2xl md:px-7",
+            content: <><SearchIcon className="h-5 w-5 md:hidden" /><span className="sr-only md:not-sr-only">Search</span></>,
+          }} />
         {trending.value.length > 0 && (
           <div className="flex w-full gap-2 overflow-x-auto pb-0.5 text-sm text-muted md:flex-wrap md:justify-center">
             <span className="hidden self-center md:inline">Trending:</span>
