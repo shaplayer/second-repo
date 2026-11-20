@@ -105,7 +105,7 @@ export function TickerSearch({
             <ul id={listId} role="listbox" aria-label="Company suggestions" className="m-0 list-none p-1">
               {companies.map((company, index) => (
                 <li key={company.cik} id={`${listId}-${index}`} role="option" aria-selected={index === active}
-                  className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm text-ink ${index === active ? "bg-chip" : "hover:bg-inset"}`}
+                  className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm text-ink ${index === active ? "bg-chip" : index % 2 === 0 ? "bg-inset hover:bg-chip" : "bg-white hover:bg-chip"}`}
                   onPointerDown={(event) => event.preventDefault()} onClick={() => choose(company)}>
                   <strong className="shrink-0">{company.ticker}</strong>
                   <span className="min-w-0 flex-1 truncate">{company.name}</span>
