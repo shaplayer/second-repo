@@ -26,7 +26,6 @@ design is the canvas named in decision 8. `docs/RUNBOOK.md` has the steps the ow
   refuses any host that is not local.
 - SEC requests always send `SEC_USER_AGENT` (the real company name and a monitored email; there is no default) and stay
   under 8 requests a second in total.
-- `legacy/vercel-app/` is a frozen reference copy of the old app. Do not import from it or edit it.
 - Never commit `.env` or paste keys into code, docs or chat.
 
 - Sign-in is by emailed one-time link (`lib/auth`). Only hashes of link codes and session codes are stored. Anything that
