@@ -19,6 +19,7 @@ import { recordBackfillRun, runBackfill, type BackfillReport, type StepReport } 
 import { BASIC_SUMMARY_WHY, derivedToken } from "../lib/backfill/mapping";
 import { confirmSignup, peekConfirmation, peekUnsubscribe, signUp } from "../lib/alerts/subscriptions";
 import { signInVerifiedEmail } from "../lib/auth/accounts";
+import { getFeed } from "../lib/data/feed";
 import { loadCompanies } from "../lib/db/companies";
 import { migrate, readMigrations } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
@@ -559,6 +560,34 @@ async function main() {
       assert.equal(s.skipped["link is not https"], 1);
       assert.ok(s.notes.join(" ").includes("Sample Wire"));
       assert.equal(await num(app, `select count(*) from public.news where url like '%example.com%'`), 0);
+    });
+
+    await test("feed cursors: same-time release IDs page consistently and newer batches report their catch-up boundary", async () => {
+      await app.query("begin");
+      try {
+        for (const id of [990, 99, 1000]) {
+          await app.query(
+            `insert into public.news (id, source, cik, title, url, published_at)
+             values ($1, 'prnewswire', 320193, 'Cursor test', $2, '2070-01-01T00:00:00.123456Z')`,
+            [id, `https://www.prnewswire.com/news-releases/cursor-test-${id}.html`],
+          );
+        }
+        const first = await getFeed(app, { category: "press", cik: 320193, limit: 1 });
+        assert.equal(first.items[0].id, "n:990", "each SQL half uses the same text-ID order as the merged feed");
+        assert.equal(first.hasMore, true);
+        assert.equal(first.latestCursor, first.items[0].cursor);
+        const second = await getFeed(app, { category: "press", cik: 320193, limit: 1, before: first.next! });
+        assert.equal(second.items[0].id, "n:99");
+        const third = await getFeed(app, { category: "press", cik: 320193, limit: 1, before: second.next! });
+        assert.equal(third.items[0].id, "n:1000");
+        const newer = await getFeed(app, { category: "press", cik: 320193, limit: 1, after: third.items[0].cursor });
+        assert.deepEqual([newer.items[0].id, newer.next, newer.hasMore], ["n:99", null, true]);
+        const final = await getFeed(app, { category: "press", cik: 320193, limit: 1, after: newer.latestCursor! });
+        assert.deepEqual([final.items[0].id, final.hasMore], ["n:990", false]);
+        assert.match(final.latestCursor!, /\.123456Z\|n\|990$/);
+      } finally {
+        await app.query("rollback");
+      }
     });
 
     await test("subscriptions: the right people, the right status", async () => {

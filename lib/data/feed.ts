@@ -65,6 +65,11 @@ export type FeedQuery = {
 };
 
 export type FeedPage = { items: FeedItem[]; /** Pass as `before` for the next page; null when there is no more. */ next: string | null };
+export type FeedResult = FeedPage & {
+  latestCursor: string | null;
+  /** More items remain in the requested direction. */
+  hasMore: boolean;
+};
 
 type Row = {
   kind: "f" | "n";
@@ -144,7 +149,7 @@ const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EX
  * One page of the feed. Each half (filings, releases) is cut to the page size on its own index before
  * the two are merged, so the query stays fast however large the tables grow.
  */
-export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
+export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   const limit = Math.min(Math.max(q.limit ?? 30, 1), 100);
   const params: unknown[] = [];
   const p = (v: unknown) => `$${params.push(v)}`;
@@ -204,9 +209,9 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
     halves.push(`(select ${RELEASE_COLS}
         from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = n.cik
         left join public.summaries s on s.news_id = n.id
-       where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id ${dir} limit ${n})`);
+       where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id::text ${dir} limit ${n})`);
   }
-  if (!halves.length) return { items: [], next: null };
+  if (!halves.length) return { items: [], next: null, latestCursor: null, hasMore: false };
   const { rows } = await db.query<Row>(
     `select x.* from (${halves.join(" union all ")}) x
       order by x.at ${dir}, (x.kind || ':' || x.ref) ${dir} limit ${n}`,
@@ -215,7 +220,12 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
   const more = rows.length > limit;
   const items = rows.slice(0, limit).map(toFeedItem);
   if (dir === "asc") items.reverse();
-  return { items, next: more && dir === "desc" && items.length ? cursorOf(items[items.length - 1]) : null };
+  return {
+    items,
+    next: more && dir === "desc" && items.length ? cursorOf(items[items.length - 1]) : null,
+    latestCursor: items[0]?.cursor ?? null,
+    hasMore: more,
+  };
 }
 
 /** One item by its id ("f:<accession>" or "n:<id>"), or null. */

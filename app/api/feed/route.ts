@@ -9,13 +9,14 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const category = q.get("category");
   const cik = Number(q.get("cik"));
-  const pool = db();
-  let ciks: number[] | undefined;
-  if (q.get("mine") === "1") {
-    const user = await currentUser();
-    ciks = user ? [...new Set([...(await watchlistCiks(pool, user.id)), ...(await alertCiks(pool, user.email))])] : [];
-  }
   try {
+    const pool = db();
+    let ciks: number[] | undefined;
+    if (q.get("mine") === "1") {
+      const user = await currentUser();
+      if (!user) return json({ error: "Sign in to see news for your stocks." }, 401);
+      ciks = [...new Set([...(await watchlistCiks(pool, user.id)), ...(await alertCiks(pool, user.email))])];
+    }
     const page = await getFeed(pool, {
       category: category && (CATEGORIES as readonly string[]).includes(category) ? (category as Category) : undefined,
       cik: Number.isSafeInteger(cik) && cik > 0 ? cik : undefined,

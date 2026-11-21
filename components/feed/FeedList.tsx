@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { FeedItem, FeedSummary } from "@/lib/data/feed";
+import { useEffect, useMemo, useState } from "react";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { FeedItem } from "@/lib/data/feed";
 import { groupInsiderTrades, insiderGroupText } from "@/lib/feed-groups";
+import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, mergeFeedItems, prependFeed, summaryKey, summaryOptions, type FeedData, type FeedFilters, type LiveFeed, type SummaryView } from "@/lib/feed-query";
 import { CATEGORY_LABEL, type Category } from "@/lib/plain";
 import { TypeBadge } from "@/components/ui/Badges";
 import { BellIcon, PauseIcon, PlayIcon } from "@/components/ui/Icons";
@@ -18,6 +20,10 @@ export type FeedListProps = {
   initial: FeedItem[];
   /** Cursor for older posts, or null when there are none. */
   next: string | null;
+  initialAvailable?: boolean;
+  pageSize?: number;
+  /** Keeps personalized query caches separate between accounts. */
+  accountScope?: string | null;
   /** Fixed parts of the query: one company (the stock page). */
   cik?: number;
   /** Show the filter buttons, with these counts (posts in the last 24 hours). */
@@ -44,16 +50,11 @@ export type FeedListProps = {
   rows?: number;
 };
 
-type SummaryView =
-  | { status: "ready"; summary: FeedSummary; headline: string }
-  | { status: "pending" }
-  | { status: "unavailable"; reason: string };
-
 const tickerOf = (it: FeedItem) => (it.ticker ? `$${it.ticker}` : it.company);
 const stockHref = (it: FeedItem) => (it.ticker ? `/stock/${encodeURIComponent(it.ticker)}` : it.cik ? `/stock/CIK${it.cik}` : null);
 
 /** The AI summary (or the wait for it) that opens under a headline, in place. */
-function SummaryPanel({ item, view, nested = false }: { item: FeedItem; view: SummaryView | undefined; nested?: boolean }) {
+function SummaryPanel({ item, view, nested = false, retry }: { item: FeedItem; view: SummaryView | undefined; nested?: boolean; retry?: () => void }) {
   const stock = stockHref(item);
   const links = (
     <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2 pt-1">
@@ -91,147 +92,97 @@ function SummaryPanel({ item, view, nested = false }: { item: FeedItem; view: Su
           </div>
         </div>
       )}
+      {retry && <button type="button" onClick={retry} className="btn btn-soft self-start">Try summary again</button>}
       {links}
     </div>
   );
 }
 
 export function FeedList(props: FeedListProps) {
-  const { cik, live = true, signedIn = false, hideTicker = false, paged = false } = props;
-  const [items, setItems] = useState(props.initial);
-  const [next, setNext] = useState(props.next);
+  const { cik, live = true, signedIn = false, hideTicker = false, paged = false, accountScope = null, pageSize = 30 } = props;
+  const client = useQueryClient();
   const [category, setCategory] = useState<Category | "all">("all");
   const [mine, setMine] = useState(false);
   const [text, setText] = useState("");
+  const [debouncedText, setDebouncedText] = useState("");
   const [paused, setPaused] = useState(false);
-  const [fresh, setFresh] = useState<FeedItem[]>([]);
   const [open, setOpen] = useState<string | null>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-  const [views, setViews] = useState<Record<string, SummaryView>>({});
   const [following, setFollowing] = useState<Set<number>>(new Set(props.following ?? []));
   const [asking, setAsking] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [problem, setProblem] = useState(false);
-  const [checkedAt, setCheckedAt] = useState<string | null>(null);
-  const first = useRef(true);
-
-  const query = useCallback(
-    (extra: Record<string, string>) => {
-      const q = new URLSearchParams(extra);
-      if (cik !== undefined) q.set("cik", String(cik));
-      if (category !== "all") q.set("category", category);
-      if (mine) q.set("mine", "1");
-      if (text.trim()) q.set("q", text.trim());
-      return `/api/feed?${q}`;
-    },
-    [cik, category, mine, text],
-  );
-
-  // A change of filter loads that list from the top.
+  const normalizedText = text.trim().slice(0, 80);
   useEffect(() => {
-    if (first.current) {
-      first.current = false;
-      return;
-    }
-    let stop = false;
-    const t = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(query({}));
-        const data = await res.json();
-        if (stop) return;
-        setItems(data.items ?? []);
-        setNext(data.next ?? null);
-        setFresh([]);
-        setProblem(!res.ok);
-      } catch {
-        if (!stop) setProblem(true);
-      } finally {
-        if (!stop) setLoading(false);
-      }
-    }, text ? 250 : 0);
-    return () => {
-      stop = true;
-      clearTimeout(t);
-    };
-  }, [query, text]);
+    const timer = setTimeout(() => setDebouncedText(normalizedText), normalizedText ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [normalizedText]);
 
-  // Every few seconds, ask whether anything newer than the top post has arrived. New posts wait behind
-  // a "show them" bar so the list never jumps while someone is reading.
+  const filters = useMemo<FeedFilters>(() => ({
+    cik, category, mine: signedIn && mine, text: debouncedText, limit: pageSize, accountScope,
+  }), [cik, category, signedIn, mine, debouncedText, pageSize, accountScope]);
+  const initial = category === "all" && !filters.mine && !debouncedText && props.initialAvailable !== false
+    ? { items: props.initial, next: props.next } : undefined;
+  const feed = useInfiniteQuery(feedOptions(filters, initial));
+  const items = useMemo(() => mergeFeedItems(...(feed.data?.pages.map((page) => page.items) ?? [])), [feed.data]);
+  const updates = useQuery({
+    ...liveFeedOptions(client, filters),
+    enabled: live && !paused && feed.data !== undefined && normalizedText === debouncedText,
+  });
+  const fresh = updates.data?.items ?? [];
+  const checkedAt = updates.dataUpdatedAt ? new Date(updates.dataUpdatedAt).toISOString() : null;
+  const loading = feed.isFetching || normalizedText !== debouncedText;
+  const problem = feed.isError || updates.isError;
+  const item = items.find((entry) => entry.id === open);
+  const summary = useQuery(summaryOptions(item?.id ?? null, item?.summary
+    ? { status: "ready", summary: item.summary, headline: item.headline } : undefined));
+  const summaryTimedOut = summary.data?.status === "pending" && (client.getQueryState(summaryKey(item?.id ?? null))?.dataUpdateCount ?? 0) >= 40;
+  const summaryView: SummaryView | undefined = summary.isError
+    ? { status: "unavailable", reason: summary.error.message }
+    : summaryTimedOut
+      ? { status: "unavailable", reason: "The summary is taking longer than usual. The original has the full details." }
+      : summary.data;
+
   useEffect(() => {
-    if (!live || paused) return;
-    const tick = async () => {
-      if (document.hidden) return;
-      const top = fresh[0] ?? items[0];
-      try {
-        const res = await fetch(query(top ? { after: top.cursor } : {}));
-        if (!res.ok) throw new Error();
-        const data = await res.json();
-        setProblem(false);
-        setCheckedAt(new Date().toISOString());
-        if (data.items?.length) setFresh((f) => [...(data.items as FeedItem[]), ...f].slice(0, 200));
-      } catch {
-        setProblem(true);
-      }
-    };
-    const t = setInterval(tick, 10_000);
-    return () => clearInterval(t);
-  }, [live, paused, items, fresh, query]);
+    client.removeQueries({
+      predicate: (query) => {
+        const scope = query.queryKey[1];
+        return (query.queryKey[0] === "feed" || query.queryKey[0] === "feed-live")
+          && typeof scope === "object" && scope !== null && "accountScope" in scope && scope.accountScope !== accountScope;
+      },
+    });
+    setFollowing(new Set(props.following ?? []));
+  }, [client, accountScope, props.following]);
 
-  // An open item without a summary: ask for one, and keep asking while it is being written.
   useEffect(() => {
-    if (!open) return;
-    const item = items.find((i) => i.id === open);
-    if (!item) return;
-    if (item.summary) {
-      setViews((v) => ({ ...v, [open]: { status: "ready", summary: item.summary!, headline: item.headline } }));
-      return;
-    }
-    if (views[open]?.status === "ready" || views[open]?.status === "unavailable") return;
-    let stop = false;
-    let tries = 0;
-    const ask = async () => {
-      if (stop) return;
-      try {
-        const res = await fetch(`/api/summary?id=${encodeURIComponent(open)}`);
-        const data = await res.json();
-        if (stop) return;
-        if (data.status === "ready") {
-          setViews((v) => ({ ...v, [open]: { status: "ready", summary: data.summary, headline: data.headline } }));
-          setItems((list) => list.map((i) => (i.id === open ? { ...i, summary: data.summary, headline: data.headline } : i)));
-          return;
-        }
-        if (data.status === "unavailable") {
-          setViews((v) => ({ ...v, [open]: { status: "unavailable", reason: data.reason } }));
-          return;
-        }
-        setViews((v) => ({ ...v, [open]: { status: "pending" } }));
-      } catch {
-        /* try again below */
-      }
-      if (++tries < 40) setTimeout(ask, 3000);
-      else setViews((v) => ({ ...v, [open]: { status: "unavailable", reason: "The summary is taking longer than usual. The original has the full details." } }));
-    };
-    ask();
-    return () => {
-      stop = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+    if (!live || paused) void client.cancelQueries({ queryKey: liveFeedKey(filters), exact: true });
+  }, [client, filters, live, paused]);
 
-  async function loadMore() {
-    if (!next || loading) return;
-    setLoading(true);
-    try {
-      const res = await fetch(query({ before: next }));
-      const data = await res.json();
-      setItems((list) => [...list, ...(data.items ?? [])]);
-      setNext(data.next ?? null);
-    } catch {
-      setProblem(true);
-    } finally {
-      setLoading(false);
-    }
+  useEffect(() => {
+    const view = summary.data;
+    if (!open || view?.status !== "ready") return;
+    client.setQueriesData<FeedData>({ queryKey: ["feed"] }, (data) => data && ({
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        items: page.items.map((entry) => entry.id === open ? { ...entry, summary: view.summary, headline: view.headline } : entry),
+      })),
+    }));
+  }, [client, open, summary.data]);
+
+  async function showFresh() {
+    await Promise.all([
+      client.cancelQueries({ queryKey: feedKey(filters), exact: true }),
+      client.cancelQueries({ queryKey: liveFeedKey(filters), exact: true }),
+    ]);
+    const pending = client.getQueryData<LiveFeed>(liveFeedKey(filters));
+    if (!pending?.items.length) return;
+    client.setQueryData<FeedData>(feedKey(filters), (data) => data && prependFeed(data, pending));
+    client.setQueryData<LiveFeed>(liveFeedKey(filters), { ...pending, items: [] });
+  }
+
+  function retryFeed() {
+    if (feed.isFetchNextPageError) void feed.fetchNextPage();
+    else if (feed.isError) void feed.refetch();
+    else void updates.refetch();
   }
 
   async function follow(item: FeedItem) {
@@ -243,9 +194,17 @@ export function FeedList(props: FeedListProps) {
     setFollowing((f) => new Set(f).add(item.cik!));
     const res = await fetch("/api/follow", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cik: item.cik, alerts: true, source: "feed" }) });
     if (!res.ok) setFollowing((f) => { const n = new Set(f); n.delete(item.cik!); return n; });
+    else client.removeQueries({
+      type: "inactive",
+      predicate: (query) => {
+        const scope = query.queryKey[1];
+        return (query.queryKey[0] === "feed" || query.queryKey[0] === "feed-live")
+          && typeof scope === "object" && scope !== null && "mine" in scope && scope.mine === true;
+      },
+    });
   }
 
-  const filters = props.filters ?? [];
+  const offeredFilters = props.filters ?? [];
   const filterBtn = (key: Category | "all", label: string) => {
     const on = category === key;
     const count = props.counts?.[key];
@@ -259,9 +218,11 @@ export function FeedList(props: FeedListProps) {
 
   // One post. `nested` is a post inside an opened burst of insider trades: the company and its button are on the burst's own row.
   const row = (it: FeedItem, nested: boolean) => {
-          const isOpen = open === it.id;
+    const isOpen = open === it.id;
     const stock = stockHref(it);
-    const view = views[it.id] ?? (it.summary ? { status: "ready" as const, summary: it.summary, headline: it.headline } : undefined);
+    const view: SummaryView | undefined = it.summary
+      ? { status: "ready", summary: it.summary, headline: it.headline }
+      : isOpen ? summaryView : undefined;
     const followed = it.cik !== null && following.has(it.cik);
     return (
       <article key={it.id} className={`border-t border-line-soft px-4 py-4 md:px-6 ${isOpen ? "bg-[#fbfdfc]" : ""}`}>
@@ -315,7 +276,8 @@ export function FeedList(props: FeedListProps) {
             <SignupForm cik={it.cik} ticker={it.ticker} source={`feed:${it.ticker ?? it.cik}`} button={`Alert me on ${tickerOf(it)}`} tone="light" />
           </div>
         )}
-        {isOpen && <SummaryPanel item={it} view={view} nested={nested} />}
+        {isOpen && <SummaryPanel item={it} view={view} nested={nested}
+          retry={summary.isError || summaryTimedOut ? () => { void client.resetQueries({ queryKey: summaryKey(it.id), exact: true }); } : undefined} />}
       </article>
     );
   };
@@ -360,27 +322,35 @@ export function FeedList(props: FeedListProps) {
         </div>
       )}
 
-      {filters.length > 0 && (
+      {offeredFilters.length > 0 && (
         <div className="flex gap-1.5 overflow-x-auto px-4 pb-3.5 md:flex-wrap md:px-6">
           {filterBtn("all", "All")}
-          {filters.map((c) => filterBtn(c, CATEGORY_LABEL[c]))}
+          {offeredFilters.map((c) => filterBtn(c, CATEGORY_LABEL[c]))}
         </div>
       )}
 
       {problem && (
-        <p role="status" className="m-0 border-t border-line-soft bg-amber-bg px-4 py-3 text-sm text-amber md:px-6">
-          New posts are taking longer than usual. Showing what we had{checkedAt ? ` at ${clockET(checkedAt)}` : ""}. We&apos;ll add new ones automatically.
-        </p>
+        <div role="status" className="flex flex-wrap items-center justify-between gap-2 border-t border-line-soft bg-amber-bg px-4 py-3 text-sm text-amber md:px-6">
+          <span>{feed.isError
+            ? items.length ? "Earlier posts couldn't load. Your current posts are still here." : "The feed couldn't load. Please try again."
+            : <>New posts are taking longer than usual. Showing what we had{checkedAt ? ` at ${clockET(checkedAt)}` : ""}.</>}</span>
+          <button type="button" onClick={retryFeed} disabled={feed.isFetching || updates.isFetching} className="btn btn-soft">Try again</button>
+        </div>
       )}
 
       {fresh.length > 0 && (
-        <button type="button" onClick={() => { setItems((list) => [...fresh, ...list]); setFresh([]); }}
+        <button type="button" onClick={showFresh}
           className="h-11 w-full border-0 border-t border-line-soft bg-[#eef8f2] text-sm font-bold text-good">
           ↑ {fresh.length} new {fresh.length === 1 ? "post" : "posts"}, show {fresh.length === 1 ? "it" : "them"}
         </button>
       )}
 
       <div aria-busy={loading}>
+        {loading && items.length === 0 && (
+          <p role="status" className="m-0 flex items-center justify-center gap-2 border-t border-line-soft px-6 py-7 text-[15px] text-muted">
+            <LoadingSpinner className="h-4 w-4 animate-spin" /> Loading posts...
+          </p>
+        )}
         {entries.map((entry) => {
           if (entry.kind === "item") return row(entry.item, false);
           const firstItem = entry.items[0];
@@ -442,14 +412,14 @@ export function FeedList(props: FeedListProps) {
         })}
       </div>
 
-      {items.length === 0 && !loading && (
+      {items.length === 0 && !loading && !feed.isError && (
         <p className="m-0 border-t border-line-soft px-6 py-7 text-center text-[15px] text-muted">{props.emptyText ?? "Nothing in this category yet."}</p>
       )}
 
-      {(paged ? next : props.moreHref) && (
+      {(paged ? feed.hasNextPage : props.moreHref) && (
         <div className="flex flex-wrap justify-between gap-2 border-t border-line-soft px-4 py-4 md:px-6">
           {paged ? (
-            <button type="button" onClick={loadMore} disabled={loading} className="btn btn-soft">{loading ? "Loading…" : "Load earlier posts"}</button>
+            <button type="button" onClick={() => { if (!feed.isFetching) void feed.fetchNextPage(); }} disabled={loading} className="btn btn-soft">{feed.isFetchingNextPage ? "Loading…" : "Load earlier posts"}</button>
           ) : (
             <Link href={props.moreHref!} className="font-extrabold no-underline">{props.moreLabel ?? "See all live news"} →</Link>
           )}

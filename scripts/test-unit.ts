@@ -1,6 +1,7 @@
 /** Tests for the pure rules: no network, no database. Run with `npm test`. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
 import {
   categoriesFromAppPrefs,
   derivedToken,
@@ -16,6 +17,7 @@ import {
 import type { FeedItem } from "../lib/data/feed";
 import { connectionConfig } from "../lib/db/connect";
 import { groupInsiderTrades, insiderGroupText } from "../lib/feed-groups";
+import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { readMigrations } from "../lib/db/migrate";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
@@ -28,6 +30,16 @@ const cand = (over: Partial<Candidate>): Candidate => ({
   consentUserAgent: null, source: "x", confirmedAt: null, unsubscribedAt: null, createdAt: "2026-06-01T00:00:00.000000Z",
   legacy: { source: "x" }, ...over,
 });
+
+const feedPost = (n: number): FeedItem => ({
+  id: `n:${n}`, kind: "release", cik: 320193, ticker: "AAPL", company: "Apple", category: "press",
+  typeLabel: "Press release", formCode: null, items: [], sourceName: "Test source", headline: `News ${n}`,
+  publishedAt: new Date(Date.UTC(2026, 10, 21) + n * 1000).toISOString(), path: `/release/${n}`,
+  originalUrl: `https://example.org/${n}`, summary: null, canSummarize: true,
+  cursor: `${new Date(Date.UTC(2026, 10, 21) + n * 1000).toISOString()}|n|${n}`,
+});
+
+const feedFilters: FeedFilters = { category: "all", mine: false, text: "", limit: 30, accountScope: null };
 
 async function main() {
   console.log("unit tests");
@@ -206,6 +218,154 @@ async function main() {
     assert.deepEqual(groupInsiderTrades([]), []);
     // Nothing is lost or repeated.
     assert.equal(grouped.reduce((n, e) => n + (e.kind === "item" ? 1 : e.items.length), 0), list.length);
+  });
+
+  await test("feed cache: server data is reused, older pages keep their cursor, and filters and accounts are isolated", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    const calls: URL[] = [];
+    globalThis.fetch = async (input) => {
+      calls.push(new URL(String(input), "http://localhost"));
+      return Response.json({ items: [feedPost(1)], next: null, latestCursor: feedPost(1).cursor, hasMore: false });
+    };
+    try {
+      const initial = { items: [feedPost(3), feedPost(2)], next: feedPost(2).cursor };
+      const options = feedOptions(feedFilters, initial);
+      await client.fetchInfiniteQuery(options);
+      assert.equal(calls.length, 0, "the server-rendered first page needs no duplicate request");
+      const observer = new InfiniteQueryObserver(client, options);
+      await observer.fetchNextPage();
+      assert.equal(calls[0].searchParams.get("before"), feedPost(2).cursor);
+      const data = client.getQueryData<FeedData>(feedKey(feedFilters))!;
+      const fresh = { items: [feedPost(4), feedPost(3)], latestCursor: feedPost(4).cursor, next: null };
+      client.setQueryData(feedKey(feedFilters), prependFeed(data, fresh));
+      const merged = client.getQueryData<FeedData>(feedKey(feedFilters))!;
+      assert.deepEqual(merged.pages.flatMap((page) => page.items.map((item) => item.id)), ["n:4", "n:3", "n:2", "n:1"]);
+      assert.equal(merged.pages[0].next, feedPost(2).cursor);
+      assert.deepEqual(merged.pageParams, [null, feedPost(2).cursor]);
+      await client.fetchInfiniteQuery(feedOptions({ ...feedFilters, category: "press" }));
+      await client.fetchInfiniteQuery(feedOptions(feedFilters, initial));
+      assert.equal(calls.length, 2, "switching back reuses every loaded page");
+      assert.equal(client.getQueryData(feedKey({ ...feedFilters, text: "Apple" })), undefined);
+      assert.equal(client.getQueryData(feedKey({ ...feedFilters, limit: 60 })), undefined);
+      const mine = { ...feedFilters, mine: true, accountScope: "account-a" };
+      client.setQueryData(feedKey(mine), merged);
+      assert.equal(client.getQueryData(feedKey({ ...mine, accountScope: "account-b" })), undefined);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
+  });
+
+  await test("live feed: a 65-post burst catches up immediately without refreshing older pages or losing buffered posts", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    const calls: URL[] = [];
+    const displayed: FeedData = { pages: [{ items: [feedPost(1)], next: "older-cursor" }], pageParams: [null] };
+    client.setQueryData(feedKey(feedFilters), displayed);
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://localhost");
+      calls.push(url);
+      const after = url.searchParams.get("after");
+      const remaining = Array.from({ length: 65 }, (_, index) => feedPost(index + 2)).filter((item) => item.cursor > (after ?? ""));
+      const items = remaining.slice(0, 30).reverse();
+      return Response.json({ items, next: null, latestCursor: items[0]?.cursor ?? null, hasMore: remaining.length > 30 });
+    };
+    try {
+      const updates = await client.fetchQuery(liveFeedOptions(client, feedFilters));
+      assert.equal(calls.length, 3);
+      assert.deepEqual(calls.map((url) => url.searchParams.get("after")), [feedPost(1).cursor, feedPost(31).cursor, feedPost(61).cursor]);
+      assert.ok(calls.every((url) => !url.searchParams.has("before")));
+      assert.equal(updates.items.length, 65);
+      assert.equal(updates.latestCursor, feedPost(66).cursor);
+      assert.equal(client.getQueryData(feedKey(feedFilters)), displayed, "posts stay behind the show-new-posts bar");
+      await client.invalidateQueries({ queryKey: liveFeedKey(feedFilters), exact: true });
+      const repeated = await client.fetchQuery(liveFeedOptions(client, feedFilters));
+      assert.equal(repeated.items.length, 65, "an empty check does not clear buffered posts");
+      assert.equal(new Set(repeated.items.map((item) => item.id)).size, 65);
+      const merged = prependFeed(displayed, repeated);
+      assert.equal(merged.pages[0].items.length, 66);
+      assert.equal(merged.pages[0].next, "older-cursor");
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
+  });
+
+  await test("live feed: an initially empty list retains the cursor for older posts when new posts are shown", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    const displayed: FeedData = { pages: [{ items: [], next: null }], pageParams: [null] };
+    client.setQueryData(feedKey(feedFilters), displayed);
+    globalThis.fetch = async () => Response.json({
+      items: [feedPost(3), feedPost(2)], next: feedPost(2).cursor, latestCursor: feedPost(3).cursor, hasMore: true,
+    });
+    try {
+      const updates = await client.fetchQuery(liveFeedOptions(client, feedFilters));
+      const merged = prependFeed(displayed, updates);
+      assert.equal(merged.pages[0].next, feedPost(2).cursor);
+      assert.deepEqual(merged.pages[0].items.map((item) => item.id), ["n:3", "n:2"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
+  });
+
+  await test("feed requests: failed updates retain good data and cancelling an obsolete search aborts its fetch", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    const displayed: FeedData = { pages: [{ items: [feedPost(1)], next: null }], pageParams: [null] };
+    const previous: LiveFeed = { items: [feedPost(2)], latestCursor: feedPost(2).cursor, next: null };
+    client.setQueryData(feedKey(feedFilters), displayed);
+    client.setQueryData(liveFeedKey(feedFilters), previous);
+    globalThis.fetch = async () => Response.json({ items: [], next: null, error: "Unavailable" }, { status: 503 });
+    try {
+      await client.invalidateQueries({ queryKey: liveFeedKey(feedFilters), exact: true });
+      await assert.rejects(client.fetchQuery({ ...liveFeedOptions(client, feedFilters), retry: false }), /not available/);
+      assert.deepEqual(client.getQueryData(liveFeedKey(feedFilters)), previous);
+      assert.equal(client.getQueryData(feedKey(feedFilters)), displayed);
+      const search = { ...feedFilters, text: "obsolete" };
+      let signal: AbortSignal | null | undefined;
+      let started!: () => void;
+      const ready = new Promise<void>((resolve) => { started = resolve; });
+      globalThis.fetch = async (_input, init) => {
+        signal = init?.signal;
+        started();
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+        });
+      };
+      const pending = client.fetchInfiniteQuery({ ...feedOptions(search), retry: false });
+      const rejected = assert.rejects(pending);
+      await ready;
+      await client.cancelQueries({ queryKey: feedKey(search), exact: true });
+      await rejected;
+      assert.ok(signal?.aborted);
+      assert.equal(client.getQueryData(feedKey(search)), undefined);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
+  });
+
+  await test("summary queries: pending results can become ready and a ready summary is reused without another request", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    const ready = { status: "ready", headline: "Results improved", summary: { kind: "ai", oneSentence: "Sales grew.", bullets: [] } };
+    globalThis.fetch = async () => Response.json(++calls === 1 ? { status: "pending" } : ready);
+    try {
+      const options = summaryOptions("n:1");
+      assert.deepEqual(await client.fetchQuery(options), { status: "pending" });
+      await client.invalidateQueries({ queryKey: options.queryKey, exact: true });
+      assert.deepEqual(await client.fetchQuery(options), ready);
+      assert.deepEqual(await client.fetchQuery(options), ready);
+      assert.equal(calls, 2);
+      assert.equal(client.getQueryData(summaryOptions("n:2").queryKey), undefined);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
   });
 
   await test("database targets: local is recognised, passwords never appear in the label", () => {

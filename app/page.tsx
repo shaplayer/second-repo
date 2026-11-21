@@ -163,7 +163,8 @@ export default async function Home() {
           </p>
         )}
         <FeedList
-          initial={feed.value.items} next={feed.value.next} counts={counts.value} filters={[...FILTERS]} signedIn={Boolean(user)} following={following.value}
+          initial={feed.value.items} next={feed.value.next} initialAvailable={feed.ok} pageSize={60} accountScope={user?.id}
+          counts={counts.value} filters={[...FILTERS]} signedIn={Boolean(user)} following={following.value}
           rows={12} moreHref="/news" moreLabel="See all live news" emptyText="Nothing in this category in the last few minutes."
         />
       </section>
