@@ -13,6 +13,7 @@ import {
 import { sha256Hex, sign, verify } from "../lib/auth/secret";
 import { matchNewItems } from "../lib/alerts/match";
 import { sendDigests, sendQueuedAlerts } from "../lib/alerts/send";
+import { cancelTestAlert, scheduleTestAlert, sendTestAlerts } from "../lib/alerts/test-alerts";
 import {
   confirmSignup, listSubscriptions, noteConfirmationSent, peekConfirmation, peekUnsubscribe, setCadence, setCategory, signUp,
   stopEverything, suppressAddress, undoUnsubscribe, unsubscribe,
@@ -507,6 +508,57 @@ async function main() {
       await assert.rejects(sendQueuedAlerts(db, { provider: mail.provider }), /COMPANY_POSTAL_ADDRESS is not set/);
       assert.equal(mail.sent.length, 0);
       process.env.COMPANY_POSTAL_ADDRESS = saved;
+    });
+
+    await test("scheduled tests only reach selected eligible subscribers and can be cancelled", async () => {
+      const { user } = await signInVerifiedEmail(db, "test-admin@example.org", from);
+      const ids: string[] = [];
+      for (const email of ["test-one@example.org", "test-two@example.org", "test-three@example.org"]) {
+        const signup = await signUp(db, { email, source: "test", consentText: consent, ...from });
+        await confirmSignup(db, signup.confirmToken!, from);
+        ids.push((await one<{ id: string }>(db, `select id::text from public.alert_subscriptions where address = $1 and cik is null`, [email])).id);
+      }
+      const input = { subject: "Delivery check", body: "This is a test.", scheduledAt: new Date(Date.now() + 60_000).toISOString(), recipients: ids, confirm: true };
+      await assert.rejects(scheduleTestAlert(db, user.id, { ...input, confirm: false }), /Confirm/);
+      const id = await scheduleTestAlert(db, user.id, input);
+      const mail = fakeEmail();
+      assert.equal(await sendTestAlerts(db, { provider: mail.provider }), 0);
+      await db.query(`update public.test_alerts set scheduled_at = now() - interval '1 minute' where id = $1`, [id]);
+      await db.query(`update public.alert_subscriptions set status = 'unsubscribed' where id = $1`, [ids[1]]);
+      await db.query(`insert into public.suppressions (channel, address, reason) values ('email', 'test-three@example.org', 'bounce')`);
+      await sendTestAlerts(db, { provider: mail.provider });
+      assert.equal(mail.sent.length, 1);
+      assert.equal(mail.sent[0].msg.to[0], "test-one@example.org");
+      assert.match(mail.sent[0].msg.subject, /^\[TEST\]/);
+      assert.match(mail.sent[0].msg.text, /Not investment advice/);
+      assert.match(mail.sent[0].msg.text, /Unsubscribe:/);
+      assert.ok(mail.sent[0].msg.headers?.["List-Unsubscribe-Post"]);
+      assert.equal(await num(db, `select count(*) from public.test_alert_recipients where test_alert_id = $1 and status = 'suppressed'`, [id]), 2);
+      const cancelled = await scheduleTestAlert(db, user.id, { ...input, recipients: [ids[0]] });
+      assert.equal(await cancelTestAlert(db, cancelled), true);
+      await db.query(`update public.test_alerts set scheduled_at = now() - interval '1 minute' where id = $1`, [cancelled]);
+      assert.equal(await sendTestAlerts(db, { provider: mail.provider }), 0);
+      assert.equal(mail.sent.length, 1);
+    });
+
+    await test("test delivery retries with the same key and records a final failure", async () => {
+      const { user } = await signInVerifiedEmail(db, "test-admin@example.org", from);
+      const id = (await one<{ id: string }>(db, `select id::text from public.alert_subscriptions where address = 'test-one@example.org' and cik is null`)).id;
+      const job = await scheduleTestAlert(db, user.id, { subject: "Retry check", body: "This is a test.",
+        scheduledAt: new Date(Date.now() + 60_000).toISOString(), recipients: [id], confirm: true });
+      await db.query(`update public.test_alerts set scheduled_at = now() - interval '1 minute' where id = $1`, [job]);
+      const keys: (string | undefined)[] = [];
+      const provider: EmailProvider = { name: "fake", configured: () => true, async send(_message, options) {
+        keys.push(options?.idempotencyKey);
+        throw new Error("email service unavailable");
+      } };
+      for (let i = 0; i < 5; i++) {
+        await sendTestAlerts(db, { provider });
+        await db.query(`update public.test_alert_recipients set next_attempt_at = now() where test_alert_id = $1`, [job]);
+      }
+      assert.equal(new Set(keys).size, 1);
+      assert.equal(keys.length, 5);
+      assert.equal((await one<{ status: string }>(db, `select status from public.test_alert_recipients where test_alert_id = $1`, [job])).status, "failed");
     });
 
     await test("insider trades that arrive together go out as one email; one or two, or another day's, go out on their own", async () => {

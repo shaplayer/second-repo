@@ -26,6 +26,7 @@ import { Pool, type Notification, type PoolClient } from "pg";
 import { clearExpiredAuth } from "../lib/auth/accounts";
 import { matchNewItems } from "../lib/alerts/match";
 import { sendDigests, sendQueuedAlerts } from "../lib/alerts/send";
+import { sendTestAlerts } from "../lib/alerts/test-alerts";
 import { growthRulesEnabled, teamInbox } from "../lib/config";
 import { loadCompanies } from "../lib/db/companies";
 import { connectionConfig } from "../lib/db/connect";
@@ -204,6 +205,8 @@ export async function runWorker({ db, sec, sending, summaries, once, onceDaily, 
         const r = await sendQueuedAlerts(db, { limit: 500 });
         if (r.sent + r.failed + r.retrying + r.suppressed === 0) break;
       }
+      // The console provider is useful for normal development but never sends a real test email.
+      if (emailProvider().name !== "console") await sendTestAlerts(db);
     }),
     () => every("companies", () => 5_000, async () => {
       // Never-checked companies first: someone just opened their page and is waiting.

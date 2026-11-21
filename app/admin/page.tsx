@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { PickForm } from "@/components/admin/PickForm";
+import { AdminForms } from "@/components/admin/AdminForms";
 import { Shell } from "@/components/site/Shell";
 import { postalAddress, smsEnabled } from "@/lib/config";
 import { listPicks, sponsorLine } from "@/lib/data/picks";
 import { db } from "@/lib/db";
 import { emailProvider } from "@/lib/email";
+import { listTestAlerts, type TestAlertJob } from "@/lib/alerts/test-alerts";
 import { dateET, exactET } from "@/lib/time";
 import { currentUser } from "@/lib/web/request";
 
@@ -37,6 +38,12 @@ export default async function AdminPage() {
     `select id::text as id, name, company, ticker, email, phone, package, message, created_at from public.inquiries where imported_from is null order by created_at desc limit 20`,
   );
   const picks = await listPicks(pool, { limit: 8 }).catch(() => []);
+  let testAlerts: TestAlertJob[] | null = null;
+  try {
+    testAlerts = await listTestAlerts(pool);
+  } catch (error) {
+    console.error("[admin] could not load test alerts:", error);
+  }
   const problems = [
     !postalAddress() && "COMPANY_POSTAL_ADDRESS is not set: alert emails are held back until it is.",
     emailProvider().name === "console" && "EMAIL_PROVIDER is “console”: emails are printed to the log, not sent.",
@@ -64,10 +71,7 @@ export default async function AdminPage() {
           </dl>
         </section>
 
-        <section className={card}>
-          <h2 className="m-0 text-xl font-extrabold">Post a pick</h2>
-          <PickForm listSize={Number(counts?.picks ?? 0)} />
-        </section>
+        <AdminForms listSize={Number(counts?.picks ?? 0)} testAlerts={testAlerts} />
 
         <section className={card}>
           <h2 className="m-0 text-xl font-extrabold">Recent picks</h2>

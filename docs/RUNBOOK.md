@@ -299,6 +299,22 @@ npm run admin:grant -- you@yourcompany.com
 Sign in on the site with that address (an emailed link), then open `/admin`. That page shows whether
 the worker is healthy, lets you post picks, and lists sponsor inquiries.
 
+#### Schedule a test email
+
+Under **Schedule a test email**, search for and select individual active subscribers to the free pick
+list, review the suggested subject and message, and choose a future time in the time zone shown by your
+browser. Confirm that real emails will be sent, then schedule the test. It is labelled as a test and
+does not publish a pick. The recent-tests list shows each recipient's result. Cancel remaining emails
+there if needed; an email already being sent cannot be recalled.
+
+The worker must be running with `ALERTS_SENDING=on`. With `off`, tests stay waiting until sending is
+turned on; they are not sent as an exception to the switch. The web app and worker need the same real,
+configured `EMAIL_PROVIDER` (for example Resend, with its verified sender and API key) and
+`COMPANY_POSTAL_ADDRESS`. The `console` provider only prints and cannot send these tests. The worker
+rechecks consent and suppression before sending. A provider's acceptance is shown as sent, not proof
+of inbox delivery. Retries use a stable idempotency key, but providers such as SMTP that ignore it can
+send a duplicate after an uncertain failure. Check recipient results and worker errors before retrying.
+
 ### B4. Let it run beside the old site for two days
 
 Leave `ALERTS_SENDING=off`. Compare what the new feed shows with the old sites. On `/admin` every
