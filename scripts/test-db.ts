@@ -568,6 +568,7 @@ async function main() {
         for (const id of [990, 99, 1000]) {
           await app.query(
             `insert into public.news (id, source, cik, title, url, published_at)
+            overriding system value
              values ($1, 'prnewswire', 320193, 'Cursor test', $2, '2070-01-01T00:00:00.123456Z')`,
             [id, `https://www.prnewswire.com/news-releases/cursor-test-${id}.html`],
           );
