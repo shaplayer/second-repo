@@ -7,7 +7,7 @@ import { TestAlertForm } from "@/components/admin/TestAlertForm";
 import type { TestAlertJob } from "@/lib/alerts/test-alerts";
 
 const tabs = [
-  { label: "Post a pick", description: "Publish and email the pick list" },
+  { label: "Post a pick", description: "Publish now or schedule a sponsored pick" },
   { label: "Test email", description: "Schedule a delivery test" },
   { label: "API key", description: "Connect an application" },
 ];

@@ -21,7 +21,8 @@ import {
   stopEverything, suppressAddress, undoUnsubscribe, unsubscribe,
 } from "../lib/alerts/subscriptions";
 import { alertEmail, confirmEmail, pickEmail } from "../lib/alerts/templates";
-import { createPick } from "../lib/data/picks";
+import { createPick, getPick, listPicks } from "../lib/data/picks";
+import { dateET } from "../lib/time";
 import { db as appDb } from "../lib/db";
 import { getFeed, getFeedItem } from "../lib/data/feed";
 import type { EmailMessage, EmailProvider } from "../lib/email";
@@ -137,6 +138,14 @@ async function main() {
         assert.equal((await createPickApi(request(input, { origin: "https://other.example" }))).status, 403);
         assert.equal((await createPickApi(request({ ...input, confirm: false }))).status, 400);
         assert.equal((await createPickApi(request({ ...input, sponsored: true, payer: "Sponsor", amount: "", form: "cash" }))).status, 400);
+        const sponsoredInput = { ...input, sponsored: true, payer: "Sponsor", amount: "$1,000", form: "cash" };
+        assert.equal((await createPickApi(request(sponsoredInput))).status, 400);
+        assert.equal((await createPickApi(request({ ...sponsoredInput, startDate: "2026-02-30" }))).status, 400);
+        const scheduled = await createPickApi(request({ ...sponsoredInput, startDate: "2099-07-01" }));
+        assert.equal(scheduled.status, 200);
+        const scheduledPick = await scheduled.json();
+        assert.equal(scheduledPick.startsAt, "2099-07-01T04:00:00.000Z");
+        assert.equal(await getPick(db, scheduledPick.id), null);
         assert.equal((await createPickApi(request({ ...input, ticker: "NOPE" }))).status, 400);
         const created = await createPickApi(request(input));
         assert.equal(created.status, 200);
@@ -144,7 +153,9 @@ async function main() {
         assert.equal(pick.ticker, "MSFT");
         const listed = await listPicksApi(new Request("http://localhost:3000/api/v1/picks", { headers }));
         assert.equal(listed.status, 200);
-        assert.ok((await listed.json()).picks.some((p: { id: string }) => p.id === pick.id));
+        const listedPicks = (await listed.json()).picks;
+        assert.ok(listedPicks.some((p: { id: string }) => p.id === pick.id));
+        assert.ok(listedPicks.some((p: { id: string }) => p.id === scheduledPick.id));
         await db.query(`update public.picks set matched_at = now() where id = $1`, [pick.id]);
       } finally {
         await appDb().end();
@@ -420,14 +431,44 @@ async function main() {
     /* ----------------------------------------------------------------- picks */
     await test("a sponsored pick cannot be posted without who paid, how much and in what form", async () => {
       await assert.rejects(
-        createPick(db, { ticker: "MSFT", title: "A sponsored idea about Microsoft", why: "", author: "BigStocks", ownsShares: false, sponsor: { payer: "Acme IR", amount: "", form: "cash" } }),
+        createPick(db, { ticker: "MSFT", title: "A sponsored idea about Microsoft", why: "", author: "BigStocks", ownsShares: false, sponsored: true, startDate: "2026-11-24", sponsor: { payer: "Acme IR", amount: "", form: "cash" } }),
         /who paid, how much, and in what form/,
       );
       await assert.rejects(
         db.query(`insert into public.picks (ticker, company_name, kind, title, why, author, tier) values ('MSFT', 'Microsoft', 'sponsored', 'x', '', 'a', 'free')`),
         /sponsored_needs_disclosure/,
       );
-      await assert.rejects(createPick(db, { ticker: "NOPE", title: "A pick about nothing", why: "", author: "x", ownsShares: false }), /No company with the ticker/);
+      await assert.rejects(createPick(db, { ticker: "NOPE", title: "A pick about nothing", why: "", author: "x", ownsShares: false, sponsored: false }), /No company with the ticker/);
+    });
+
+    await test("scheduled picks stay private and unmatched until their start date, then send once even if created days earlier", async () => {
+      const input = {
+        ticker: "MSFT", title: "A scheduled sponsored pick", why: "", author: "BigStocks", ownsShares: false,
+        sponsored: true as const, sponsor: { payer: "Acme IR", amount: "$5,000", form: "cash" },
+      };
+      for (const startDate of ["", "2026-02-30", "2026-13-01", "not a date", "2026-11-24T10:00:00Z"]) {
+        await assert.rejects(createPick(db, { ...input, startDate }), /valid start date/);
+      }
+      const pick = await createPick(db, { ...input, startDate: "2099-01-01" });
+      assert.equal(pick.startsAt, "2099-01-01T05:00:00.000Z", "winter uses New York standard time");
+      assert.equal(await getPick(db, pick.id), null);
+      assert.ok(!(await listPicks(db)).some((p) => p.id === pick.id));
+      assert.ok((await listPicks(db, { includeScheduled: true })).some((p) => p.id === pick.id));
+      await matchNewItems(db);
+      assert.equal(await num(db, `select count(*) from public.alert_events where item_ref = $1`, [pick.id]), 0);
+      assert.equal(await num(db, `select count(*) from public.picks where id = $1 and matched_at is null`, [pick.id]), 1);
+      const signup = await signUp(db, { email: "scheduled@example.org", source: "picks", consentText: consent, ...from });
+      await confirmSignup(db, signup.confirmToken!, from);
+      await db.query(`update public.picks set posted_at = now() - interval '7 days', starts_at = now() - interval '1 second' where id = $1`, [pick.id]);
+      assert.ok(await getPick(db, pick.id));
+      assert.ok((await listPicks(db)).some((p) => p.id === pick.id));
+      await matchNewItems(db);
+      const mail = fakeEmail();
+      await sendQueuedAlerts(db, { provider: mail.provider });
+      assert.equal(mail.sent.filter((s) => s.msg.to[0] === "scheduled@example.org" && s.msg.subject === "Sponsored: $MSFT").length, 1);
+      assert.equal((await matchNewItems(db)).picks, 0);
+      assert.equal((await sendQueuedAlerts(db, { provider: mail.provider })).sent, 0);
+      await stopEverything(db, "scheduled@example.org");
     });
 
     await test("a pick goes once to everyone on the pick list, at once even for daily-summary people; a sponsored one says who paid first", async () => {
@@ -439,7 +480,8 @@ async function main() {
       await setCadence(db, "p2@example.org", "digest");
       const pick = await createPick(db, {
         ticker: "msft", title: "Cloud sales grew for a tenth quarter in a row", why: "The quarterly report shows steady growth.", author: "BigStocks",
-        ownsShares: false, sponsor: { payer: "Acme Investor Relations", amount: "$5,000", form: "cash" },
+        ownsShares: false, sponsored: true, startDate: (await one<{ today: string }>(db, `select to_char(now() at time zone 'America/New_York', 'YYYY-MM-DD') as today`)).today,
+        sponsor: { payer: "Acme Investor Relations", amount: "$5,000", form: "cash" },
       });
       const m = await matchNewItems(db);
       assert.equal(m.picks, 1);
@@ -450,6 +492,8 @@ async function main() {
       assert.equal(r.failed, 0);
       const text = picksSent[0].msg.text;
       assert.ok(text.startsWith("Sponsored. Paid for by Acme Investor Relations: $5,000, cash."), text.slice(0, 80));
+      assert.ok(text.includes(`Start date: ${dateET(pick.startsAt)}.`));
+      assert.ok(picksSent[0].msg.html?.includes(`Start date: ${dateET(pick.startsAt)}.`));
       assert.match(text, /Picks are ideas to research, not advice\./);
       assert.ok(!/No one paid/.test(text));
       const free = pickEmail({ pick: { ...pick, sponsored: false, sponsor: null }, footer: { siteUrl: "https://bigstocks.test", postalAddress: "X" } });

@@ -102,10 +102,10 @@ async function matchPicks(db: Db): Promise<{ items: number; events: number }> {
   return inTransaction(db, async (c) => {
     const { rows } = await c.query<{ items: string; events: string }>(
       `with todo as (
-         select p.id, p.cik, p.posted_at
+         select p.id, p.cik, p.starts_at
            from public.picks p
-          where p.matched_at is null and p.imported_from is null
-          order by p.posted_at
+          where p.matched_at is null and p.imported_from is null and p.starts_at <= now()
+          order by p.starts_at
           limit 5
             for update skip locked
        ), made as (
@@ -115,7 +115,7 @@ async function matchPicks(db: Db): Promise<{ items: number; events: number }> {
          select distinct on (t.id, s.address) s.id, 'pick', t.id::text, 'pick:' || t.id, 'queued'
            from todo t
            join public.alert_subscriptions s on (s.cik is null or s.cik = t.cik)
-          where t.posted_at > now() - make_interval(hours => $1)
+          where t.starts_at > now() - make_interval(hours => $1)
             and s.status = 'active' and s.channel = 'email' and 'picks' = any(s.categories)
           order by t.id, s.address, (s.cik is null) desc, s.id
          on conflict on constraint alert_events_once_per_person_per_item do nothing

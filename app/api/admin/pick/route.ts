@@ -1,4 +1,4 @@
-import { createPick } from "@/lib/data/picks";
+import { createPick, PickInputError } from "@/lib/data/picks";
 import { db } from "@/lib/db";
 import { currentUser, json, readJson, sameOrigin } from "@/lib/web/request";
 
@@ -14,15 +14,20 @@ export async function POST(req: Request) {
   if (!user?.isAdmin) return json({ ok: false, error: "Only staff can post picks." }, 403);
   const b = await readJson(req);
   if (b.confirm !== true) return json({ ok: false, error: "Tick the box to confirm before sending." }, 400);
+  if (typeof b.sponsored !== "boolean") return json({ ok: false, error: "Say whether the pick is sponsored." }, 400);
   const sponsored = b.sponsored === true;
   try {
     const pick = await createPick(db(), {
       ticker: text(b.ticker, 12), title: text(b.title, 200), why: text(b.why, 2000), author: user.displayName ?? "BigStocks",
       sourceUrl: text(b.sourceUrl, 500) || null, ownsShares: b.ownsShares === true, ownershipNote: text(b.ownershipNote, 300),
-      sponsor: sponsored ? { payer: text(b.payer, 160), amount: text(b.amount, 80), form: text(b.form, 80) } : null,
+      ...(sponsored
+        ? { sponsored: true, sponsor: { payer: text(b.payer, 160), amount: text(b.amount, 80), form: text(b.form, 80) }, startDate: text(b.startDate, 20) }
+        : { sponsored: false }),
     });
-    return json({ ok: true, id: pick.id, ticker: pick.ticker });
+    return json({ ok: true, id: pick.id, ticker: pick.ticker, startsAt: pick.startsAt });
   } catch (e) {
-    return json({ ok: false, error: (e as Error).message }, 400);
+    if (e instanceof PickInputError) return json({ ok: false, error: e.message }, 400);
+    console.error("[admin] could not create pick:", e);
+    return json({ ok: false, error: "Could not create the pick." }, 500);
   }
 }

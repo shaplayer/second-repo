@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { dateET } from "@/lib/time";
 
 /** Staff form for posting a pick. Sending cannot be undone, so it asks for a tick first. */
 export function PickForm({ listSize }: { listSize: number }) {
@@ -21,14 +22,19 @@ export function PickForm({ listSize }: { listSize: number }) {
       const res = await fetch("/api/admin/pick", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          ticker: v("ticker"), title: v("title"), why: v("why"), sourceUrl: v("sourceUrl"), sponsored, payer: v("payer"), amount: v("amount"), form: v("form"),
+          ticker: v("ticker"), title: v("title"), why: v("why"), sourceUrl: v("sourceUrl"), sponsored,
+          ...(sponsored ? { payer: v("payer"), amount: v("amount"), form: v("form"), startDate: v("startDate") } : {}),
           ownsShares: f.get("ownsShares") === "on", ownershipNote: v("ownershipNote"), confirm: f.get("confirm") === "on",
         }),
       }).catch(() => null);
       const data = res ? await res.json().catch(() => ({})) : {};
       setState("idle");
       if (res?.ok && data.ok) {
-        setNote({ ok: true, text: `Posted $${data.ticker}. The email goes out to the pick list within a minute.` });
+        setNote({ ok: true, text: Date.parse(data.startsAt) > Date.now()
+          ? `Scheduled $${data.ticker} for ${dateET(data.startsAt)}. Publication and email start at midnight New York time.`
+          : Date.now() - Date.parse(data.startsAt) >= 24 * 3600_000
+            ? `Posted $${data.ticker}. The start date is too old to send an email.`
+            : `Posted $${data.ticker}. The email goes out to the pick list within a minute.` });
         form.reset();
         setSponsored(false);
         router.refresh();
@@ -49,19 +55,21 @@ export function PickForm({ listSize }: { listSize: number }) {
       </label>
       {sponsored && (
         <fieldset className="m-0 flex flex-wrap gap-3 rounded-2xl border-0 bg-amber-bg p-4">
-          <legend className="sr-only">Who paid, how much, in what form</legend>
-          <p className="m-0 w-full text-sm text-amber">The law requires all three. They are shown on the pick and at the top of the email.</p>
+          <legend className="sr-only">Sponsor details and start date</legend>
+          <p className="m-0 w-full text-sm text-amber">Who paid, how much and in what form are required disclosures. The start date is also shown on the pick and in the email.</p>
           <label className="flex flex-[1_1_220px] flex-col gap-1 text-sm font-bold">Who paid<input name="payer" required className="field" placeholder="Company or agency name" /></label>
           <label className="flex flex-[1_1_140px] flex-col gap-1 text-sm font-bold">How much<input name="amount" required className="field" placeholder="$5,000" /></label>
           <label className="flex flex-[1_1_140px] flex-col gap-1 text-sm font-bold">In what form<input name="form" required className="field" placeholder="cash, shares…" /></label>
+          <label className="flex min-w-0 flex-[1_1_180px] flex-col gap-1 text-sm font-bold">Start date<input name="startDate" type="date" required className="field min-w-0" /></label>
+          <p className="m-0 w-full text-sm text-amber">The pick becomes public and eligible for email at midnight New York time on this date. Dates more than 24 hours ago publish without an email.</p>
         </fieldset>
       )}
       <label className="flex items-start gap-2 text-sm">
         <input type="checkbox" name="confirm" required className="mt-0.5 h-[18px] w-[18px] accent-brand" />
-        <span>Send this to the {listSize.toLocaleString("en-US")} people on the pick list now. This cannot be undone, and a pick can never be deleted.</span>
+        <span>{sponsored ? "Publish on the start date and email the pick list (unless the date is more than 24 hours ago)." : `Send this now to the ${listSize.toLocaleString("en-US")} people on the pick list.`} This cannot be undone, and a pick can never be deleted.</span>
       </label>
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={state === "busy"} className="btn btn-dark btn-lg">{state === "busy" ? "Posting…" : "Post and send"}</button>
+        <button type="submit" disabled={state === "busy"} className="btn btn-dark btn-lg">{state === "busy" ? "Saving…" : sponsored ? "Save and schedule" : "Post and send"}</button>
         {note && <span role={note.ok ? "status" : "alert"} className={`text-sm font-bold ${note.ok ? "text-good" : "text-bad"}`}>{note.text}</span>}
       </div>
     </form>

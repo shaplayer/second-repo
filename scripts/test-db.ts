@@ -916,6 +916,7 @@ async function main() {
       assert.equal(p[0].legacy.close_after, 12.9);
       assert.ok(step("picks").notes.join(" ").includes("1 sponsored alerts had no compensation text"));
       assert.equal(await num(app, `select count(*) from public.picks`), 6, "the old app's two picks are still there");
+      assert.equal(await num(app, `select count(*) from public.picks where starts_at = posted_at`), 6, "existing and imported picks retain their original publication dates");
     });
 
     await test("the switch-over run copies sends and inquiries; an unfinished send can never be resumed here", async () => {

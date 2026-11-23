@@ -17,22 +17,61 @@ key can publish picks and cause emails to be sent. To revoke a key, a trusted da
 can delete its row from `public.pick_api_keys` by application name. This does not delete picks.
 
 Send `Authorization: Bearer <key>` to `GET /api/v1/picks` to list picks, or to
-`POST /api/v1/picks` with JSON like:
+`POST /api/v1/picks` with JSON.
+
+**Non-sponsored pick:**
 
 ```json
 {
   "ticker": "MSFT",
   "title": "The reason for this pick",
   "why": "Optional explanation",
+  "sourceUrl": "https://example.org/source",
   "sponsored": false,
   "ownsShares": false,
+  "ownershipNote": "Optional ownership disclosure",
   "confirm": true
 }
 ```
 
-For a sponsored pick, set `sponsored` to `true` and include `payer`, `amount`, and `form` strings.
-`sourceUrl` (HTTPS) and `ownershipNote` are optional. A successful POST publishes the pick and
-queues email alerts; it cannot be undone. There is no automatic retry deduplication: if a response
+**Sponsored pick:**
+
+```json
+{
+  "ticker": "MSFT",
+  "title": "The reason for this sponsored pick",
+  "why": "Optional explanation",
+  "sourceUrl": "https://example.org/source",
+  "sponsored": true,
+  "payer": "Example Sponsor",
+  "amount": "$1,000",
+  "form": "cash",
+  "startDate": "2026-12-01",
+  "ownsShares": false,
+  "ownershipNote": "Optional ownership disclosure",
+  "confirm": true
+}
+```
+
+`ticker`, `title`, `sponsored`, `ownsShares`, and `confirm` are required; `confirm` must be `true`.
+The ticker must be in the SEC company list, and the trimmed title must be 10–200 characters.
+`why`, `sourceUrl` (HTTPS), and `ownershipNote` are optional. For a sponsored pick, `payer`, `amount`,
+and `form` are required non-empty strings, and `startDate` is a required calendar date (`YYYY-MM-DD`);
+for a non-sponsored pick, set `sponsored` to `false` and
+omit them. Other database columns, such as the ID, company name, author, and posting time, are not
+accepted as editable fields by this API.
+
+A successful POST saves the pick and returns its `startsAt` timestamp (alongside `id` and `ticker`).
+Sponsored picks become public and eligible for email at midnight **America/New_York** on `startDate`
+(including daylight-saving changes); today's date or an earlier date publishes immediately.
+Free picks still publish immediately. The worker queues email only after the start time, using that
+time rather than the creation time for the stale-alert cutoff (24 hours). Picks whose start date is
+more than 24 hours ago are published but not emailed. Staff and the authenticated GET API include
+scheduled picks; public lists hide them until their start time. Disclosures on the page and in the
+email include the start date. Existing picks retain their original publication dates after migration.
+Apply the new migration before deploying this code.
+
+Saving a pick cannot be undone. There is no automatic retry deduplication: if a response
 is lost, check the list before trying again. Picks cannot be deleted.
 
 **Use a new folder.** The data site that is live today runs from its own folder on the Droplet. Leave

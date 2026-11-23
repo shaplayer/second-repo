@@ -37,7 +37,7 @@ export default async function AdminPage() {
   const inquiries = await q<{ id: string; name: string; company: string; ticker: string | null; email: string; phone: string | null; package: string | null; message: string | null; created_at: Date }>(
     `select id::text as id, name, company, ticker, email, phone, package, message, created_at from public.inquiries where imported_from is null order by created_at desc limit 20`,
   );
-  const picks = await listPicks(pool, { limit: 8 }).catch(() => []);
+  const picks = await listPicks(pool, { limit: 8, includeScheduled: true }).catch(() => []);
   let testAlerts: TestAlertJob[] | null = null;
   try {
     testAlerts = await listTestAlerts(pool);
@@ -74,12 +74,12 @@ export default async function AdminPage() {
         <AdminForms listSize={Number(counts?.picks ?? 0)} testAlerts={testAlerts} />
 
         <section className={card}>
-          <h2 className="m-0 text-xl font-extrabold">Recent picks</h2>
+          <h2 className="m-0 text-xl font-extrabold">Recent and scheduled picks</h2>
           {picks.length === 0 && <p className="m-0 text-sm text-muted">None yet.</p>}
           {picks.map((p) => (
             <div key={p.id} className="flex flex-wrap items-baseline gap-x-3 border-t border-line-soft pt-2 text-sm">
-              <span className="num w-[92px] text-muted">{dateET(p.postedAt)}</span><strong className="w-16">${p.ticker}</strong>
-              <span className="min-w-0 flex-1">{p.title}{sponsorLine(p) && <span className="block font-bold text-amber">{sponsorLine(p)}</span>}</span>
+              <span className="num w-[92px] text-muted">{dateET(p.startsAt)}</span><strong className="w-16">${p.ticker}</strong>
+              <span className="min-w-0 flex-1">{p.title}{Date.parse(p.startsAt) > Date.now() && <span className="block font-bold text-muted">Scheduled, not public yet</span>}{sponsorLine(p) && <span className="block font-bold text-amber">{sponsorLine(p)}</span>}</span>
             </div>
           ))}
         </section>

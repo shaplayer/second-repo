@@ -105,7 +105,7 @@ export default async function PicksPage() {
             return (
               <Link key={p.id} href={`/stock/${encodeURIComponent(p.ticker)}`}
                 className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line-soft px-5 py-4 text-ink no-underline hover:text-ink md:px-6">
-                <span className="num w-[92px] flex-none text-[13px] text-muted">{dateET(p.postedAt)}</span>
+                <span className="num w-[92px] flex-none text-[13px] text-muted">{dateET(p.startsAt)}</span>
                 <span className="w-20 flex-none font-extrabold">${p.ticker}</span>
                 <span className="min-w-0 flex-[1_1_320px] text-[15px] leading-[1.45]">
                   {p.title}
