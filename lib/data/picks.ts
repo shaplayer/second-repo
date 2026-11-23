@@ -4,6 +4,7 @@
  * No price is ever fetched, stored or shown here.
  */
 import type { Client, Pool, PoolClient } from "pg";
+import { inTransaction } from "../alerts/subscriptions";
 import { normalizeTicker } from "../sec/companies";
 import { dateET } from "../time";
 
@@ -82,6 +83,14 @@ export async function listPicks(db: Db, opts: { before?: string; limit?: number 
   return rows.map(toPick);
 }
 
+/** All picks that have not yet become public, for staff only. */
+export async function listScheduledPicks(db: Db): Promise<StockPick[]> {
+  const { rows } = await db.query<Row>(
+    `select ${COLS} from public.picks p where p.starts_at > now() order by p.starts_at`,
+  );
+  return rows.map(toPick);
+}
+
 export async function getPick(db: Db, id: string): Promise<StockPick | null> {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return null;
   const { rows } = await db.query<Row>(`select ${COLS} from public.picks p where p.id = $1 and p.starts_at <= now()`, [id]);
@@ -107,12 +116,9 @@ export type NewPick = {
 );
 
 export class PickInputError extends Error {}
+export class PickNotEditableError extends Error {}
 
-/**
- * Saves a pick. Sponsored picks publish at midnight New York time on their start date; the worker
- * sends eligible picks after that time. Invalid details throw a plain-English error.
- */
-export async function createPick(db: Db, input: NewPick): Promise<StockPick> {
+async function preparePick(db: Db, input: NewPick) {
   const ticker = normalizeTicker(input.ticker);
   if (!ticker) throw new PickInputError("That ticker doesn't look right.");
   const title = input.title.trim();
@@ -140,12 +146,44 @@ export async function createPick(db: Db, input: NewPick): Promise<StockPick> {
     [ticker],
   );
   if (!co.rows[0]) throw new PickInputError(`No company with the ticker ${ticker} in the SEC's list.`);
+  return { ticker, title, why, sponsor, startDate, company: co.rows[0] };
+}
+
+/**
+ * Saves a pick. Sponsored picks publish at midnight New York time on their start date; the worker
+ * sends eligible picks after that time. Invalid details throw a plain-English error.
+ */
+export async function createPick(db: Db, input: NewPick): Promise<StockPick> {
+  const { ticker, title, why, sponsor, startDate, company } = await preparePick(db, input);
   const { rows } = await db.query<Row>(
     `insert into public.picks as p (ticker, company_name, cik, kind, title, why, author, tier, owns_shares, ownership_note, sponsor, source_url, starts_at)
      values ($1, $2, $3, $4, $5, $6, $7, 'free', $8, $9, $10, $11, coalesce($12::date::timestamp at time zone 'America/New_York', now()))
      returning ${COLS}`,
-    [ticker, co.rows[0].name, co.rows[0].cik, sponsor ? "sponsored" : "pick", title, why, input.author.trim() || "BigStocks",
+    [ticker, company.name, company.cik, sponsor ? "sponsored" : "pick", title, why, input.author.trim() || "BigStocks",
       input.ownsShares, input.ownershipNote?.trim() ?? "", sponsor ? JSON.stringify(sponsor) : null, input.sourceUrl ?? null, startDate],
   );
   return toPick(rows[0]);
+}
+
+/** Update only a still-private, unmatched pick. The worker locks the same row when matching. */
+export async function updateScheduledPick(db: Db, id: string, input: NewPick): Promise<StockPick> {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    throw new PickNotEditableError("This pick cannot be edited.");
+  }
+  const { ticker, title, why, sponsor, startDate, company } = await preparePick(db, input);
+  return inTransaction(db, async (c) => {
+    await c.query(`select id from public.picks where id = $1 for update`, [id]);
+    const { rows } = await c.query<Row>(
+      `update public.picks as p
+          set ticker = $2, company_name = $3, cik = $4, kind = $5, title = $6, why = $7,
+              owns_shares = $8, ownership_note = $9, sponsor = $10, source_url = $11,
+              starts_at = coalesce($12::date::timestamp at time zone 'America/New_York', clock_timestamp())
+        where p.id = $1 and p.starts_at > clock_timestamp() and p.matched_at is null
+        returning ${COLS}`,
+      [id, ticker, company.name, company.cik, sponsor ? "sponsored" : "pick", title, why,
+        input.ownsShares, input.ownershipNote?.trim() ?? "", sponsor ? JSON.stringify(sponsor) : null, input.sourceUrl ?? null, startDate],
+    );
+    if (!rows[0]) throw new PickNotEditableError("This pick is no longer editable. It may already be public.");
+    return toPick(rows[0]);
+  });
 }

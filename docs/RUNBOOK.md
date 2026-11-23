@@ -13,8 +13,11 @@ The plan these steps belong to is `docs/MIGRATION_PLAN.md`.
 
 After applying migrations, staff can create an API key in **Staff → API key**. Copy it immediately;
 it is shown only once. Keep it on the application's server, never in browser code. Anyone with the
-key can publish picks and cause emails to be sent. To revoke a key, a trusted database administrator
-can delete its row from `public.pick_api_keys` by application name. This does not delete picks.
+key can publish picks and cause emails to be sent. The same key infrastructure can be used by future
+API endpoints, subject to their authorization rules. To revoke a key, a trusted database administrator
+can delete its row from `public.api_keys` by application name. This does not delete picks. Existing keys
+continue to work after the API-key table is renamed. A compatibility view keeps the previous
+application code working during deployment; it has no public access.
 
 Send `Authorization: Bearer <key>` to `GET /api/v1/picks` to list picks, or to
 `POST /api/v1/picks` with JSON.
@@ -23,13 +26,11 @@ Send `Authorization: Bearer <key>` to `GET /api/v1/picks` to list picks, or to
 
 ```json
 {
-  "ticker": "MSFT",
-  "title": "The reason for this pick",
-  "why": "Optional explanation",
-  "sourceUrl": "https://example.org/source",
+  "ticker": "AAPL",
+  "title": "Apple is on our radar for review",
+  "why": "Replace this with your researched explanation.",
   "sponsored": false,
   "ownsShares": false,
-  "ownershipNote": "Optional ownership disclosure",
   "confirm": true
 }
 ```
@@ -46,12 +47,14 @@ Send `Authorization: Bearer <key>` to `GET /api/v1/picks` to list picks, or to
   "payer": "Example Sponsor",
   "amount": "$1,000",
   "form": "cash",
-  "startDate": "2026-12-01",
+  "startDate": "2026-11-23",
   "ownsShares": false,
   "ownershipNote": "Optional ownership disclosure",
   "confirm": true
 }
 ```
+
+For an immediate send, use today's date in New York; the example date becomes stale.
 
 `ticker`, `title`, `sponsored`, `ownsShares`, and `confirm` are required; `confirm` must be `true`.
 The ticker must be in the SEC company list, and the trimmed title must be 10–200 characters.
@@ -71,7 +74,13 @@ scheduled picks; public lists hide them until their start time. Disclosures on t
 email include the start date. Existing picks retain their original publication dates after migration.
 Apply the new migration before deploying this code.
 
-Saving a pick cannot be undone. There is no automatic retry deduplication: if a response
+Staff can edit any scheduled pick from **Staff → Scheduled picks** before it becomes public. Changes
+to the start date change when it appears and when email becomes eligible. Choosing a start date that
+has already begun, or changing the pick to non-sponsored, publishes it immediately. Once public,
+it cannot be edited. Staff must confirm before saving. API clients can list scheduled picks but cannot
+edit them through the pick API.
+
+Publishing a pick cannot be undone. There is no automatic retry deduplication: if a response
 is lost, check the list before trying again. Picks cannot be deleted.
 
 **Use a new folder.** The data site that is live today runs from its own folder on the Droplet. Leave

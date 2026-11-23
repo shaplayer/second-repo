@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
 import { GET as findTestRecipients, POST as changeTestAlert } from "../app/api/admin/test-alerts/route";
-import { POST as createApiKey } from "../app/api/admin/pick-api-keys/route";
+import { POST as createApiKey } from "../app/api/admin/api-keys/route";
+import { POST as createLegacyApiKey } from "../app/api/admin/pick-api-keys/route";
+import { POST as savePick } from "../app/api/admin/pick/route";
 import {
   categoriesFromAppPrefs,
   derivedToken,
@@ -57,8 +59,13 @@ async function main() {
       const anonymous = await changeTestAlert(new Request("http://localhost:3000/api/admin/test-alerts", { method: "POST" }));
       assert.equal(anonymous.status, 403);
       assert.equal((await findTestRecipients(new Request("http://localhost:3000/api/admin/test-alerts?q=test"))).status, 403);
-      assert.equal((await createApiKey(new Request("http://localhost:3000/api/admin/pick-api-keys", { method: "POST" }))).status, 403);
-      assert.equal((await createApiKey(new Request("http://localhost:3000/api/admin/pick-api-keys", {
+      assert.equal((await createApiKey(new Request("http://localhost:3000/api/admin/api-keys", { method: "POST" }))).status, 403);
+      assert.equal((await createApiKey(new Request("http://localhost:3000/api/admin/api-keys", {
+        method: "POST", headers: { origin: "https://other.example" },
+      }))).status, 403);
+      assert.equal((await createLegacyApiKey(new Request("http://localhost:3000/api/admin/pick-api-keys", { method: "POST" }))).status, 403);
+      assert.equal((await savePick(new Request("http://localhost:3000/api/admin/pick", { method: "POST" }))).status, 403);
+      assert.equal((await savePick(new Request("http://localhost:3000/api/admin/pick", {
         method: "POST", headers: { origin: "https://other.example" },
       }))).status, 403);
     } finally {

@@ -19,6 +19,8 @@ import { recordBackfillRun, runBackfill, type BackfillReport, type StepReport } 
 import { BASIC_SUMMARY_WHY, derivedToken } from "../lib/backfill/mapping";
 import { confirmSignup, peekConfirmation, peekUnsubscribe, signUp } from "../lib/alerts/subscriptions";
 import { signInVerifiedEmail } from "../lib/auth/accounts";
+import { authenticateApiKey } from "../lib/auth/api-keys";
+import { sha256Hex } from "../lib/auth/secret";
 import { getFeed } from "../lib/data/feed";
 import { loadCompanies } from "../lib/db/companies";
 import { migrate, readMigrations } from "../lib/db/migrate";
@@ -246,12 +248,26 @@ async function main() {
       const first = await migrate(app, { upTo: LAST_OLD_MIGRATION });
       assert.equal(first.applied.length, 7);
       await seedOldApp(app);
-      const second = await migrate(app);
-      assert.equal(second.applied.length, NEWER);
+      const second = await migrate(app, { upTo: "20261124130000" });
+      assert.equal(second.applied.length, NEWER - 1);
       assert.equal(second.alreadyApplied, 7);
+      const existingKey = "a".repeat(43);
+      await app.query(`insert into public.users (id, email) values ($1, 'alice@example.org')`, [U1]);
+      await app.query(`insert into public.pick_api_keys (key_hash, name, created_by) values ($1, 'Existing application', $2)`, [sha256Hex(existingKey), U1]);
       const third = await migrate(app);
-      assert.equal(third.applied.length, 0, "running again changes nothing");
-      assert.equal(third.alreadyApplied, 7 + NEWER);
+      assert.equal(third.applied.length, 1);
+      assert.equal(await authenticateApiKey(app, `Bearer ${existingKey}`), "Existing application");
+      assert.equal(await num(app, `select count(*) from public.api_keys where key_hash = $1`, [sha256Hex(existingKey)]), 1);
+      assert.equal(await num(app, `select count(*) from public.pick_api_keys where key_hash = $1`, [sha256Hex(existingKey)]), 1);
+      await app.query(`insert into public.pick_api_keys (key_hash, name, created_by) values ($1, 'Old deployment', $2)`, [sha256Hex("b".repeat(43)), U1]);
+      assert.equal(await authenticateApiKey(app, `Bearer ${"b".repeat(43)}`), "Old deployment");
+      assert.equal(await num(app, `select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = 'api_keys' and grantee in ('anon', 'authenticated')`), 0);
+      assert.equal(await num(app, `select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = 'pick_api_keys' and grantee in ('anon', 'authenticated', 'PUBLIC')`), 0);
+      await app.query(`delete from public.api_keys where created_by = $1`, [U1]);
+      await app.query(`delete from public.users where id = $1`, [U1]);
+      const fourth = await migrate(app);
+      assert.equal(fourth.applied.length, 0, "running again changes nothing");
+      assert.equal(fourth.alreadyApplied, 7 + NEWER);
     });
 
     await test("a failing migration is rolled back completely", async () => {

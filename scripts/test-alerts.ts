@@ -5,9 +5,9 @@
  *   npx tsx scripts/test-alerts.ts [--if-available]
  */
 import assert from "node:assert/strict";
-import type { Client } from "pg";
+import { Client } from "pg";
 import { GET as listPicksApi, POST as createPickApi } from "../app/api/v1/picks/route";
-import { createPickApiKey } from "../lib/auth/pick-api-keys";
+import { createApiKey } from "../lib/auth/api-keys";
 import {
   consumeLoginToken, createLoginToken, destroySession, getSessionUser, maskEmail, normalizeEmail, peekLoginToken, safeNextPath,
   signInVerifiedEmail,
@@ -21,7 +21,7 @@ import {
   stopEverything, suppressAddress, undoUnsubscribe, unsubscribe,
 } from "../lib/alerts/subscriptions";
 import { alertEmail, confirmEmail, pickEmail } from "../lib/alerts/templates";
-import { createPick, getPick, listPicks } from "../lib/data/picks";
+import { createPick, getPick, listPicks, listScheduledPicks, updateScheduledPick, PickNotEditableError } from "../lib/data/picks";
 import { dateET } from "../lib/time";
 import { db as appDb } from "../lib/db";
 import { getFeed, getFeedItem } from "../lib/data/feed";
@@ -125,9 +125,9 @@ async function main() {
         const { rows } = await db.query<{ id: string }>(
           `insert into public.users (email, is_admin) values ('api-admin@example.org', true) returning id::text`,
         );
-        const key = await createPickApiKey(db, "Test application", rows[0].id);
-        assert.equal(await num(db, `select count(*) from public.pick_api_keys where key_hash = $1`, [key]), 0);
-        assert.equal(await num(db, `select count(*) from public.pick_api_keys where key_hash = $1`, [sha256Hex(key)]), 1);
+        const key = await createApiKey(db, "Test application", rows[0].id);
+        assert.equal(await num(db, `select count(*) from public.api_keys where key_hash = $1`, [key]), 0);
+        assert.equal(await num(db, `select count(*) from public.api_keys where key_hash = $1`, [sha256Hex(key)]), 1);
         const headers = { authorization: `Bearer ${key}`, "content-type": "application/json" };
         const request = (body: object, extraHeaders: Record<string, string> = {}) => new Request("http://localhost:3000/api/v1/picks", {
           method: "POST", headers: { ...headers, ...extraHeaders }, body: JSON.stringify(body),
@@ -159,7 +159,7 @@ async function main() {
         await db.query(`update public.picks set matched_at = now() where id = $1`, [pick.id]);
       } finally {
         await appDb().end();
-        await db.query(`delete from public.pick_api_keys where created_by in (select id from public.users where email = 'api-admin@example.org')`);
+        await db.query(`delete from public.api_keys where created_by in (select id from public.users where email = 'api-admin@example.org')`);
         await db.query(`delete from public.users where email = 'api-admin@example.org'`);
         if (savedUrl === undefined) delete process.env.DATABASE_URL;
         else process.env.DATABASE_URL = savedUrl;
@@ -429,6 +429,78 @@ async function main() {
     });
 
     /* ----------------------------------------------------------------- picks */
+    await test("scheduled picks can be edited until they become public", async () => {
+      const input = {
+        ticker: "MSFT", title: "Original scheduled pick", why: "", author: "Original author", ownsShares: false,
+        sponsored: true as const, sponsor: { payer: "Sponsor", amount: "$100", form: "cash" }, startDate: "2099-01-01",
+      };
+      const picks = [];
+      for (let i = 0; i < 9; i++) picks.push(await createPick(db, input));
+      const pick = picks[0];
+      const scheduled = await listScheduledPicks(db);
+      assert.ok(picks.every((p) => scheduled.some((s) => s.id === p.id)));
+      const changed = { ...input, ticker: "AAPL", title: "Updated scheduled pick", why: "Updated explanation", author: "Another author",
+        sourceUrl: "https://example.org/filing", ownsShares: true, ownershipNote: "Staff hold shares",
+        sponsor: { payer: "New sponsor", amount: "$200", form: "shares" }, startDate: "2099-07-01" };
+      await assert.rejects(updateScheduledPick(db, pick.id, { ...changed, sponsor: { ...changed.sponsor, amount: "" } }), /who paid/);
+      const updated = await updateScheduledPick(db, pick.id, changed);
+      assert.equal(updated.ticker, "AAPL");
+      assert.equal(updated.cik, AAPL);
+      assert.equal(updated.title, changed.title);
+      assert.equal(updated.why, changed.why);
+      assert.equal(updated.sourceUrl, changed.sourceUrl);
+      assert.equal(updated.ownsShares, true);
+      assert.equal(updated.ownershipNote, changed.ownershipNote);
+      assert.deepEqual(updated.sponsor, changed.sponsor);
+      assert.equal(updated.startsAt, "2099-07-01T04:00:00.000Z");
+      assert.equal((await one<{ author: string }>(db, `select author from public.picks where id = $1`, [pick.id])).author, "Original author");
+      assert.equal(await getPick(db, pick.id), null);
+      await matchNewItems(db);
+      assert.equal(await num(db, `select count(*) from public.alert_events where item_ref = $1`, [pick.id]), 0);
+      await db.query(`update public.picks set starts_at = clock_timestamp() - interval '1 second' where id = $1`, [pick.id]);
+      await assert.rejects(updateScheduledPick(db, pick.id, input), PickNotEditableError);
+      assert.equal((await getPick(db, pick.id))?.title, changed.title);
+      const free = await updateScheduledPick(db, picks[1].id, {
+        ticker: "MSFT", title: "Published from schedule", why: "", author: "Ignored", ownsShares: false, sponsored: false,
+      });
+      assert.ok(await getPick(db, free.id));
+      await assert.rejects(updateScheduledPick(db, free.id, input), PickNotEditableError);
+    });
+
+    await test("an edit waiting on a publication lock cannot change a newly public pick", async () => {
+      const input = {
+        ticker: "MSFT", title: "Pick at publication boundary", why: "", author: "BigStocks", ownsShares: false,
+        sponsored: true as const, sponsor: { payer: "Sponsor", amount: "$100", form: "cash" }, startDate: "2099-01-01",
+      };
+      const pick = await createPick(db, input);
+      await db.query(`update public.picks set starts_at = clock_timestamp() + interval '1 second' where id = $1`, [pick.id]);
+      const blocker = new Client({ connectionString: url });
+      await blocker.connect();
+      try {
+        const pid = (await db.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+        await blocker.query("begin");
+        await blocker.query("select id from public.picks where id = $1 for update", [pick.id]);
+        const editing = updateScheduledPick(db, pick.id, { ...input, title: "Edit after publication" })
+          .then(() => null, (error: unknown) => error);
+        let waiting = false;
+        for (let i = 0; i < 100 && !waiting; i++) {
+          const result = await blocker.query<{ waiting: boolean }>(
+            `select wait_event_type = 'Lock' as waiting from pg_stat_activity where pid = $1`, [pid],
+          );
+          waiting = result.rows[0]?.waiting === true;
+          if (!waiting) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.ok(waiting, "the edit must be waiting for the row lock");
+        await blocker.query("select pg_sleep(1.1)");
+        await blocker.query("commit");
+        assert.ok(await editing instanceof PickNotEditableError);
+        assert.equal((await getPick(db, pick.id))?.title, input.title);
+      } finally {
+        await blocker.query("rollback").catch(() => {});
+        await blocker.end();
+      }
+    });
+
     await test("a sponsored pick cannot be posted without who paid, how much and in what form", async () => {
       await assert.rejects(
         createPick(db, { ticker: "MSFT", title: "A sponsored idea about Microsoft", why: "", author: "BigStocks", ownsShares: false, sponsored: true, startDate: "2026-11-24", sponsor: { payer: "Acme IR", amount: "", form: "cash" } }),
@@ -451,6 +523,7 @@ async function main() {
       }
       const pick = await createPick(db, { ...input, startDate: "2099-01-01" });
       assert.equal(pick.startsAt, "2099-01-01T05:00:00.000Z", "winter uses New York standard time");
+      await updateScheduledPick(db, pick.id, { ...input, title: "Updated scheduled email", sponsor: { payer: "New sponsor", amount: "$10,000", form: "shares" }, startDate: "2099-01-01" });
       assert.equal(await getPick(db, pick.id), null);
       assert.ok(!(await listPicks(db)).some((p) => p.id === pick.id));
       assert.ok((await listPicks(db, { includeScheduled: true })).some((p) => p.id === pick.id));
@@ -465,7 +538,10 @@ async function main() {
       await matchNewItems(db);
       const mail = fakeEmail();
       await sendQueuedAlerts(db, { provider: mail.provider });
-      assert.equal(mail.sent.filter((s) => s.msg.to[0] === "scheduled@example.org" && s.msg.subject === "Sponsored: $MSFT").length, 1);
+      const sent = mail.sent.filter((s) => s.msg.to[0] === "scheduled@example.org" && s.msg.subject === "Sponsored: $MSFT");
+      assert.equal(sent.length, 1);
+      assert.match(sent[0].msg.text, /Updated scheduled email/);
+      assert.match(sent[0].msg.text, /New sponsor: \$10,000, shares/);
       assert.equal((await matchNewItems(db)).picks, 0);
       assert.equal((await sendQueuedAlerts(db, { provider: mail.provider })).sent, 0);
       await stopEverything(db, "scheduled@example.org");

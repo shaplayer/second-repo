@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState } from "react";
 import { PickForm } from "@/components/admin/PickForm";
-import { PickApiKeyForm } from "@/components/admin/PickApiKeyForm";
+import { ApiKeyForm } from "@/components/admin/ApiKeyForm";
 import { TestAlertForm } from "@/components/admin/TestAlertForm";
 import type { TestAlertJob } from "@/lib/alerts/test-alerts";
 
@@ -69,7 +69,7 @@ export function AdminForms({ listSize, testAlerts }: { listSize: number; testAle
         <div role="tabpanel" id={`${id}-panel-2`} aria-labelledby={`${id}-tab-2`} hidden={active !== 2} className="p-4 md:p-6">
           <p className="eyebrow mb-1 mt-0">Application access</p>
           <h3 className="mb-4 mt-0 text-lg font-extrabold">Create an API key</h3>
-          <PickApiKeyForm />
+          <ApiKeyForm />
         </div>
       </div>
     </section>

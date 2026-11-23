@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export function PickApiKeyForm() {
+export function ApiKeyForm() {
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -16,7 +16,7 @@ export function PickApiKeyForm() {
       setError(null);
       setKey(null);
       try {
-        const response = await fetch("/api/admin/pick-api-keys", {
+        const response = await fetch("/api/admin/api-keys", {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name }),
         });
         const data = await response.json();
@@ -32,9 +32,11 @@ export function PickApiKeyForm() {
         setBusy(false);
       }
     }}>
-      <p className="m-0 text-sm text-ink-2">Give each application its own key. It can publish picks and send emails to the pick list.</p>
-      <label className="flex flex-col gap-1 text-sm font-bold">Application name
-        <input name="name" required maxLength={100} className="field" />
+      <p className="m-0 text-sm text-ink-2">
+        Give each application its own API key. It can currently publish picks and send emails to the pick list.
+      </p>
+      <label className="flex flex-col gap-1 text-sm font-bold">
+        Application name <input name="name" required maxLength={100} className="field" />
       </label>
       <button type="submit" disabled={busy} className="btn btn-dark self-start">{busy ? "Creating…" : "Create API key"}</button>
       {key && <div role="status" className="min-w-0 text-sm">

@@ -1,11 +1,11 @@
-import { authenticatePickApiKey } from "@/lib/auth/pick-api-keys";
+import { authenticateApiKey } from "@/lib/auth/api-keys";
 import { createPick, listPicks, PickInputError } from "@/lib/data/picks";
 import { db } from "@/lib/db";
 import { json, readJson, sameOrigin } from "@/lib/web/request";
 
 export async function GET(req: Request) {
   try {
-    if (!await authenticatePickApiKey(db(), req.headers.get("authorization"))) {
+    if (!await authenticateApiKey(db(), req.headers.get("authorization"))) {
       return json({ ok: false, error: "Invalid API key." }, 401);
     }
     return json({ ok: true, picks: await listPicks(db(), { limit: null, includeScheduled: true }) });
@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   if (!sameOrigin(req)) return json({ ok: false, error: "Request origin not allowed." }, 403);
   try {
-    const name = await authenticatePickApiKey(db(), req.headers.get("authorization"));
+    const name = await authenticateApiKey(db(), req.headers.get("authorization"));
     if (!name) return json({ ok: false, error: "Invalid API key." }, 401);
     const b = await readJson(req);
     if (b.confirm !== true || typeof b.ticker !== "string" || typeof b.title !== "string"
