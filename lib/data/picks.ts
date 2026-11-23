@@ -65,14 +65,14 @@ export async function latestFreePick(db: Db): Promise<StockPick | null> {
 }
 
 /** Every pick, newest first: free and sponsored together, each clearly marked. */
-export async function listPicks(db: Db, opts: { before?: string; limit?: number; cik?: number } = {}): Promise<StockPick[]> {
+export async function listPicks(db: Db, opts: { before?: string; limit?: number | null; cik?: number } = {}): Promise<StockPick[]> {
   const params: unknown[] = [];
   const where: string[] = [];
   if (opts.before && !Number.isNaN(Date.parse(opts.before))) where.push(`p.posted_at < $${params.push(opts.before)}`);
   if (opts.cik) where.push(`p.cik = $${params.push(opts.cik)}`);
-  params.push(Math.min(Math.max(opts.limit ?? 30, 1), 100));
+  const limit = opts.limit === null ? "" : `limit $${params.push(Math.min(Math.max(opts.limit ?? 30, 1), 100))}`;
   const { rows } = await db.query<Row>(
-    `select ${COLS} from public.picks p ${where.length ? "where " + where.join(" and ") : ""} order by p.posted_at desc limit $${params.length}`,
+    `select ${COLS} from public.picks p ${where.length ? "where " + where.join(" and ") : ""} order by p.posted_at desc ${limit}`,
     params,
   );
   return rows.map(toPick);
@@ -96,29 +96,31 @@ export type NewPick = {
   sponsor?: Sponsor | null;
 };
 
+export class PickInputError extends Error {}
+
 /**
  * Posts a pick. The worker then sends it to the pick list. Throws a plain-English error when the
  * ticker is unknown or a sponsored pick lacks who paid, how much, or in what form.
  */
 export async function createPick(db: Db, input: NewPick): Promise<StockPick> {
   const ticker = normalizeTicker(input.ticker);
-  if (!ticker) throw new Error("That ticker doesn't look right.");
+  if (!ticker) throw new PickInputError("That ticker doesn't look right.");
   const title = input.title.trim();
   const why = input.why.trim();
-  if (title.length < 10 || title.length > 200) throw new Error("The one-sentence reason needs 10 to 200 characters.");
-  if (why.length > 2000) throw new Error("The explanation is too long (2,000 characters at most).");
-  if (input.sourceUrl && !/^https:\/\/\S+$/.test(input.sourceUrl)) throw new Error("The source link must start with https://");
+  if (title.length < 10 || title.length > 200) throw new PickInputError("The one-sentence reason needs 10 to 200 characters.");
+  if (why.length > 2000) throw new PickInputError("The explanation is too long (2,000 characters at most).");
+  if (input.sourceUrl && !/^https:\/\/\S+$/.test(input.sourceUrl)) throw new PickInputError("The source link must start with https://");
   const sponsor = input.sponsor
     ? { payer: input.sponsor.payer.trim(), amount: input.sponsor.amount.trim(), form: input.sponsor.form.trim() }
     : null;
   if (sponsor && !(sponsor.payer && sponsor.amount && sponsor.form)) {
-    throw new Error("A sponsored pick must say who paid, how much, and in what form (cash, shares…).");
+    throw new PickInputError("A sponsored pick must say who paid, how much, and in what form (cash, shares…).");
   }
   const co = await db.query<{ cik: string; name: string }>(
     `select c.cik::text as cik, c.name from public.company_tickers t join public.companies c on c.cik = t.cik where t.ticker = $1`,
     [ticker],
   );
-  if (!co.rows[0]) throw new Error(`No company with the ticker ${ticker} in the SEC's list.`);
+  if (!co.rows[0]) throw new PickInputError(`No company with the ticker ${ticker} in the SEC's list.`);
   const { rows } = await db.query<Row>(
     `insert into public.picks as p (ticker, company_name, cik, kind, title, why, author, tier, owns_shares, ownership_note, sponsor, source_url)
      values ($1, $2, $3, $4, $5, $6, $7, 'free', $8, $9, $10, $11)

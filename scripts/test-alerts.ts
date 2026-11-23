@@ -6,6 +6,8 @@
  */
 import assert from "node:assert/strict";
 import type { Client } from "pg";
+import { GET as listPicksApi, POST as createPickApi } from "../app/api/v1/picks/route";
+import { createPickApiKey } from "../lib/auth/pick-api-keys";
 import {
   consumeLoginToken, createLoginToken, destroySession, getSessionUser, maskEmail, normalizeEmail, peekLoginToken, safeNextPath,
   signInVerifiedEmail,
@@ -20,6 +22,7 @@ import {
 } from "../lib/alerts/subscriptions";
 import { alertEmail, confirmEmail, pickEmail } from "../lib/alerts/templates";
 import { createPick } from "../lib/data/picks";
+import { db as appDb } from "../lib/db";
 import { getFeed, getFeedItem } from "../lib/data/feed";
 import type { EmailMessage, EmailProvider } from "../lib/email";
 import { allow } from "../lib/limits";
@@ -113,7 +116,45 @@ async function main() {
     for (const bad of ["//evil.example", "https://evil.example", "/\\evil", "my-stocks", "/a\nb"]) assert.equal(safeNextPath(bad), null, bad);
   });
 
-  const ran = await withTestDatabase("alerts", async (db) => {
+  const ran = await withTestDatabase("alerts", async (db, url) => {
+    await test("pick API keys authenticate list and create requests and reject errors", async () => {
+      const savedUrl = process.env.DATABASE_URL;
+      process.env.DATABASE_URL = url;
+      try {
+        const { rows } = await db.query<{ id: string }>(
+          `insert into public.users (email, is_admin) values ('api-admin@example.org', true) returning id::text`,
+        );
+        const key = await createPickApiKey(db, "Test application", rows[0].id);
+        assert.equal(await num(db, `select count(*) from public.pick_api_keys where key_hash = $1`, [key]), 0);
+        assert.equal(await num(db, `select count(*) from public.pick_api_keys where key_hash = $1`, [sha256Hex(key)]), 1);
+        const headers = { authorization: `Bearer ${key}`, "content-type": "application/json" };
+        const request = (body: object, extraHeaders: Record<string, string> = {}) => new Request("http://localhost:3000/api/v1/picks", {
+          method: "POST", headers: { ...headers, ...extraHeaders }, body: JSON.stringify(body),
+        });
+        const input = { ticker: "MSFT", title: "Microsoft quarterly results", sponsored: false, ownsShares: false, confirm: true };
+        assert.equal((await listPicksApi(new Request("http://localhost:3000/api/v1/picks"))).status, 401);
+        assert.equal((await createPickApi(request(input, { authorization: "Bearer invalid" }))).status, 401);
+        assert.equal((await createPickApi(request(input, { origin: "https://other.example" }))).status, 403);
+        assert.equal((await createPickApi(request({ ...input, confirm: false }))).status, 400);
+        assert.equal((await createPickApi(request({ ...input, sponsored: true, payer: "Sponsor", amount: "", form: "cash" }))).status, 400);
+        assert.equal((await createPickApi(request({ ...input, ticker: "NOPE" }))).status, 400);
+        const created = await createPickApi(request(input));
+        assert.equal(created.status, 200);
+        const pick = await created.json();
+        assert.equal(pick.ticker, "MSFT");
+        const listed = await listPicksApi(new Request("http://localhost:3000/api/v1/picks", { headers }));
+        assert.equal(listed.status, 200);
+        assert.ok((await listed.json()).picks.some((p: { id: string }) => p.id === pick.id));
+        await db.query(`update public.picks set matched_at = now() where id = $1`, [pick.id]);
+      } finally {
+        await appDb().end();
+        await db.query(`delete from public.pick_api_keys where created_by in (select id from public.users where email = 'api-admin@example.org')`);
+        await db.query(`delete from public.users where email = 'api-admin@example.org'`);
+        if (savedUrl === undefined) delete process.env.DATABASE_URL;
+        else process.env.DATABASE_URL = savedUrl;
+      }
+    });
+
     /* ------------------------------------------------------------- sign-in */
     await test("a sign-in link works once, only its hash is stored, and it creates the account", async () => {
       const token = await createLoginToken(db, "new@example.org", { nextPath: "/my-stocks", ip: from.ip });

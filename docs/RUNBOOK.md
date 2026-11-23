@@ -9,6 +9,32 @@ Run the dry run first, read the output, then run it for real. Nothing is changed
 
 The plan these steps belong to is `docs/MIGRATION_PLAN.md`.
 
+## Pick API
+
+After applying migrations, staff can create an API key in **Staff → API key**. Copy it immediately;
+it is shown only once. Keep it on the application's server, never in browser code. Anyone with the
+key can publish picks and cause emails to be sent. To revoke a key, a trusted database administrator
+can delete its row from `public.pick_api_keys` by application name. This does not delete picks.
+
+Send `Authorization: Bearer <key>` to `GET /api/v1/picks` to list picks, or to
+`POST /api/v1/picks` with JSON like:
+
+```json
+{
+  "ticker": "MSFT",
+  "title": "The reason for this pick",
+  "why": "Optional explanation",
+  "sponsored": false,
+  "ownsShares": false,
+  "confirm": true
+}
+```
+
+For a sponsored pick, set `sponsored` to `true` and include `payer`, `amount`, and `form` strings.
+`sourceUrl` (HTTPS) and `ownershipNote` are optional. A successful POST publishes the pick and
+queues email alerts; it cannot be undone. There is no automatic retry deduplication: if a response
+is lost, check the list before trying again. Picks cannot be deleted.
+
 **Use a new folder.** The data site that is live today runs from its own folder on the Droplet. Leave
 that folder alone until the switch-over. Put the new code beside it:
 

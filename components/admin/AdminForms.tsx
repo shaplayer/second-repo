@@ -2,12 +2,14 @@
 
 import { useId, useRef, useState } from "react";
 import { PickForm } from "@/components/admin/PickForm";
+import { PickApiKeyForm } from "@/components/admin/PickApiKeyForm";
 import { TestAlertForm } from "@/components/admin/TestAlertForm";
 import type { TestAlertJob } from "@/lib/alerts/test-alerts";
 
 const tabs = [
   { label: "Post a pick", description: "Publish and email the pick list" },
   { label: "Test email", description: "Schedule a delivery test" },
+  { label: "API key", description: "Connect an application" },
 ];
 
 export function AdminForms({ listSize, testAlerts }: { listSize: number; testAlerts: TestAlertJob[] | null }) {
@@ -34,7 +36,7 @@ export function AdminForms({ listSize, testAlerts }: { listSize: number; testAle
         <p className="mb-0 mt-1 text-sm text-muted">Choose an action to get started.</p>
       </div>
       <div className="rounded-2xl border border-line bg-white">
-        <div role="tablist" aria-label="Staff actions" className="grid grid-cols-2 gap-1 rounded-t-2xl border-b border-line bg-inset px-2 pt-2">
+        <div role="tablist" aria-label="Staff actions" className="grid grid-cols-3 gap-1 rounded-t-2xl border-b border-line bg-inset px-2 pt-2">
           {tabs.map((tab, index) => (
             <button
               key={tab.label}
@@ -63,6 +65,11 @@ export function AdminForms({ listSize, testAlerts }: { listSize: number; testAle
           <p className="eyebrow mb-1 mt-0">Email test</p>
           <h3 className="mb-4 mt-0 text-lg font-extrabold">Schedule a test email</h3>
           {testAlerts ? <TestAlertForm jobs={testAlerts} /> : <p role="alert" className="m-0 text-sm text-bad">Could not load test alerts. Check the database and try again.</p>}
+        </div>
+        <div role="tabpanel" id={`${id}-panel-2`} aria-labelledby={`${id}-tab-2`} hidden={active !== 2} className="p-4 md:p-6">
+          <p className="eyebrow mb-1 mt-0">Application access</p>
+          <h3 className="mb-4 mt-0 text-lg font-extrabold">Create an API key</h3>
+          <PickApiKeyForm />
         </div>
       </div>
     </section>
