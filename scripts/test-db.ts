@@ -249,13 +249,13 @@ async function main() {
       assert.equal(first.applied.length, 7);
       await seedOldApp(app);
       const second = await migrate(app, { upTo: "20261124130000" });
-      assert.equal(second.applied.length, NEWER - 1);
+      assert.equal(second.applied.length, readMigrations().filter((m) => m.version > LAST_OLD_MIGRATION && m.version <= "20261124130000").length);
       assert.equal(second.alreadyApplied, 7);
       const existingKey = "a".repeat(43);
       await app.query(`insert into public.users (id, email) values ($1, 'alice@example.org')`, [U1]);
       await app.query(`insert into public.pick_api_keys (key_hash, name, created_by) values ($1, 'Existing application', $2)`, [sha256Hex(existingKey), U1]);
       const third = await migrate(app);
-      assert.equal(third.applied.length, 1);
+      assert.equal(third.applied.length, NEWER - second.applied.length);
       assert.equal(await authenticateApiKey(app, `Bearer ${existingKey}`), "Existing application");
       assert.equal(await num(app, `select count(*) from public.api_keys where key_hash = $1`, [sha256Hex(existingKey)]), 1);
       assert.equal(await num(app, `select count(*) from public.pick_api_keys where key_hash = $1`, [sha256Hex(existingKey)]), 1);
@@ -1007,7 +1007,7 @@ async function main() {
 
     await test("row-level security: a visitor sees none of the server-only tables", async () => {
       // The new tables give the public roles no rights at all; the old app's picks table keeps its rights and shows no rows.
-      for (const t of ["companies", "company_tickers", "filings", "news", "news_sources", "summaries", "fundamentals_snapshots",
+      for (const t of ["companies", "company_tickers", "filings", "news", "news_companies", "news_sources", "summaries", "fundamentals_snapshots",
         "alert_events", "alert_subscriptions", "broadcasts", "inquiries", "users", "watchlists", "backfill_runs", "job_state", "summary_jobs",
         "login_tokens", "sessions", "suppressions", "digests", "rate_limits"]) {
         await as("anon", null, () => assert.rejects(app.query(`select count(*) from public.${t}`), /permission denied/, t));
@@ -1023,7 +1023,7 @@ async function main() {
 
     await test("no way in from a browser: a Supabase sign-in token reads and changes nothing, even for its own id", async () => {
       await app.query(`update public.alert_subscriptions set user_id = $1 where address = 'alice@example.org' and cik = 320193`, [U1]);
-      const tables = ["users", "watchlists", "alert_subscriptions", "alert_events", "login_tokens", "sessions", "suppressions", "inquiries", "companies"];
+      const tables = ["users", "watchlists", "alert_subscriptions", "alert_events", "login_tokens", "sessions", "suppressions", "inquiries", "companies", "news_companies"];
       for (const role of ["anon", "authenticated"] as const) {
         for (const t of tables) {
           await as(role, U1, () => assert.rejects(app.query(`select count(*) from public.${t}`), /permission denied/, `${role} reading ${t}`));

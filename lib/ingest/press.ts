@@ -43,6 +43,53 @@ export type PressOptions = {
   now?: () => number;
 };
 
+export async function storePressItems(
+  db: Db,
+  source: { key: string; can_store_body: boolean },
+  items: PressItem[],
+): Promise<number[]> {
+  if (!items.length) return [];
+
+  // Which company each ticker belongs to. A ticker from a market outside the US is never matched.
+  const tickers = new Set<string>();
+  for (const it of items) {
+    const t = it.usListed ? normalizeTicker(it.ticker) : null;
+    if (t) tickers.add(t);
+  }
+  const company = new Map<string, { cik: number; name: string }>();
+  if (tickers.size) {
+    const { rows } = await db.query<{ ticker: string; cik: string; name: string }>(
+      `select ct.ticker, ct.cik, c.name from public.company_tickers ct join public.companies c on c.cik = ct.cik
+        where ct.ticker = any($1::text[])`,
+      [[...tickers]],
+    );
+    for (const r of rows) company.set(r.ticker, { cik: Number(r.cik), name: r.name });
+  }
+
+  const rows = items.map((it) => {
+    const match = it.usListed ? company.get(normalizeTicker(it.ticker) ?? "") : undefined;
+    return {
+      cik: match?.cik ?? null,
+      ticker: it.ticker,
+      company_name: match?.name ?? it.company,
+      title: it.title.slice(0, MAX_TITLE_CHARS),
+      url: it.url,
+      published_at: it.publishedAt,
+      body_text: source.can_store_body && it.description ? it.description : null,
+    };
+  });
+  const inserted = await db.query<{ id: string }>(
+    `insert into public.news (source, cik, ticker, company_name, title, url, published_at, body_text)
+     select $1, x.cik, x.ticker, x.company_name, x.title, x.url, least(x.published_at, now()), x.body_text
+       from jsonb_to_recordset($2::jsonb)
+         as x(cik bigint, ticker text, company_name text, title text, url text, published_at timestamptz, body_text text)
+     on conflict do nothing
+     returning id`,
+    [source.key, JSON.stringify(rows)],
+  );
+  return inserted.rows.map((r) => Number(r.id));
+}
+
 async function readFeed(url: string, doFetch: typeof fetch, now: () => number): Promise<string> {
   const host = new URL(url).host;
   const until = refusedUntil.get(host) ?? 0;
@@ -86,44 +133,7 @@ export async function pollPressFeeds(db: Db, opts: PressOptions = {}): Promise<{
     }
     if (!items.size) continue;
 
-    // Which company each ticker belongs to. A ticker from a market outside the US is never matched.
-    const tickers = new Set<string>();
-    for (const it of items.values()) {
-      const t = it.usListed ? normalizeTicker(it.ticker) : null;
-      if (t) tickers.add(t);
-    }
-    const company = new Map<string, { cik: number; name: string }>();
-    if (tickers.size) {
-      const { rows } = await db.query<{ ticker: string; cik: string; name: string }>(
-        `select ct.ticker, ct.cik, c.name from public.company_tickers ct join public.companies c on c.cik = ct.cik
-          where ct.ticker = any($1::text[])`,
-        [[...tickers]],
-      );
-      for (const r of rows) company.set(r.ticker, { cik: Number(r.cik), name: r.name });
-    }
-
-    const rows = [...items.values()].map((it) => {
-      const match = it.usListed ? company.get(normalizeTicker(it.ticker) ?? "") : undefined;
-      return {
-        cik: match?.cik ?? null,
-        ticker: it.ticker,
-        company_name: match?.name ?? it.company,
-        title: it.title.slice(0, MAX_TITLE_CHARS),
-        url: it.url,
-        published_at: it.publishedAt,
-        body_text: source.can_store_body && it.description ? it.description : null,
-      };
-    });
-    const inserted = await db.query<{ id: string }>(
-      `insert into public.news (source, cik, ticker, company_name, title, url, published_at, body_text)
-       select $1, x.cik, x.ticker, x.company_name, x.title, x.url, least(x.published_at, now()), x.body_text
-         from jsonb_to_recordset($2::jsonb)
-           as x(cik bigint, ticker text, company_name text, title text, url text, published_at timestamptz, body_text text)
-       on conflict (url) do nothing
-       returning id`,
-      [source.key, JSON.stringify(rows)],
-    );
-    for (const r of inserted.rows) newItems.push(Number(r.id));
+    newItems.push(...await storePressItems(db, source, [...items.values()]));
   }
   return { sources: sources.length, newItems };
 }

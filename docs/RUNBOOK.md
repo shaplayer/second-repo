@@ -336,6 +336,12 @@ Each line is explained in the file. What you need to have ready:
 | `COMPANY_POSTAL_ADDRESS` | Your business postal address. Alert emails are held back until it is set |
 | `ANTHROPIC_API_KEY` | console.anthropic.com. Without it the site works but writes no summaries |
 | `INQUIRY_NOTIFY_TO` | Where sponsor inquiries should be emailed |
+| `BENZINGA_API_TOKEN` | Benzinga API account. Required while the Benzinga source is enabled |
+
+The worker checks the latest 15 Benzinga items every 10 minutes. It associates each item with
+all recognized US companies; quote-page items use Benzinga's item ID to distinguish repeated links.
+Price-movement and trading-advice headlines are filtered out. Confirm the licence permits headline
+and link use before enabling the source; body storage and summaries remain disabled.
 
 Keep `ALERTS_SENDING=off` in `.env` for now (add that line).
 

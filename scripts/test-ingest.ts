@@ -15,6 +15,9 @@ import os from "node:os";
 import { Client, type Pool, type PoolClient } from "pg";
 import { migrate } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
+import { getFeed, getFeedItem, feedCounts } from "../lib/data/feed";
+import { matchNewItems } from "../lib/alerts/match";
+import { fetchBenzingaNews, parseBenzingaNews, pollBenzingaNews, resetBenzingaBackoff } from "../lib/ingest/benzinga";
 import { classifyFilings } from "../lib/ingest/classify";
 import { nextCompaniesToRefresh, refreshCompanyHealth, refreshCompanyProfile, type HealthDeps } from "../lib/ingest/company";
 import type { Db } from "../lib/ingest/db";
@@ -868,6 +871,53 @@ async function parserTests() {
     assert.deepEqual(parsePressRss("<html>403 Forbidden</html>"), []);
     assert.deepEqual(parsePressRss(""), []);
   });
+
+  await test("Benzinga API articles: US ticker, publication time, and body are normalized", () => {
+    const articles = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as unknown;
+    const items = parseBenzingaNews(articles);
+    assert.ok(items.length > 0);
+    assert.deepEqual(items[0].tickers, ["NVDA", "AMZN", "GOOGL", "GOOG", "MSFT"]);
+    assert.equal(items[0].publishedAt, "2026-11-24T18:17:57.000Z");
+    assert.ok(items[0].description.length > 0 && !items[0].description.includes("<p"));
+    const example = (articles as Record<string, unknown>[])[2];
+    const arca = parseBenzingaNews([{ ...example, title: "Company update" }]);
+    assert.ok(arca[0].tickers.includes("XLK"), "ARCA tickers are accepted");
+    assert.ok(items.every((item) => !item.sourceItemId), "sample WIIM headlines describe price movements");
+    assert.ok(items.every((item) => item.usListed && item.url.startsWith("https://")));
+    assert.deepEqual(parseBenzingaNews([]), []);
+    assert.throws(() => parseBenzingaNews({ items: [] }), /not a news-item array/);
+  });
+
+  await test("Benzinga API client uses the configured GET query and does not expose the token in errors", async () => {
+    resetBenzingaBackoff();
+    const fixture = readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8");
+    const good = fakeFetch(() => ({ body: fixture, headers: { "content-type": "application/json" } }));
+    const items = await fetchBenzingaNews({ fetch: good.fn, token: "test-benzinga-token" });
+    assert.ok(items.length > 0);
+    const request = new URL(good.calls[0].url);
+    assert.equal(request.origin + request.pathname, "https://api.benzinga.com/api/v2/news");
+    assert.deepEqual(Object.fromEntries(request.searchParams), {
+      pageSize: "15",
+      displayOutput: "full",
+      topic_group_by: "or",
+      token: "test-benzinga-token",
+    });
+    assert.equal(good.calls[0].headers.accept, "application/json");
+
+    await assert.rejects(fetchBenzingaNews({ fetch: good.fn, token: "" }), /BENZINGA_API_TOKEN is required/);
+    assert.equal(good.calls.length, 1, "missing token fails before network access");
+
+    const unauthorized = fakeFetch(() => ({ status: 401 }));
+    await assert.rejects(
+      fetchBenzingaNews({ fetch: unauthorized.fn, token: "test-benzinga-token" }),
+      (error: unknown) => error instanceof Error && /HTTP 401/.test(error.message) && !error.message.includes("test-benzinga-token"),
+    );
+    const refused = fakeFetch(() => ({ status: 429 }));
+    await assert.rejects(fetchBenzingaNews({ fetch: refused.fn, token: "test-benzinga-token", now: () => 1_000 }), /429/);
+    await assert.rejects(fetchBenzingaNews({ fetch: refused.fn, token: "test-benzinga-token", now: () => 2_000 }), /backing off/);
+    assert.equal(refused.calls.length, 1);
+    resetBenzingaBackoff();
+  });
 }
 
 /* ---------- database writers ---------- */
@@ -1337,6 +1387,87 @@ async function databaseTests(c: Client) {
     await quietly(() => pollPressFeeds(c, { fetch: f.fn, now: () => t }));
     assert.equal(f.calls.filter((x) => x.url === BW).length, 2, "asked again after half an hour");
     resetPressBackoff();
+  });
+
+  await test("Benzinga articles link every company, preserve quote identities, and honor permissions", async () => {
+    resetBenzingaBackoff();
+    const sample = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as Record<string, unknown>[];
+    const created = new Date().toISOString();
+    const stocks = [{ name: "NWBT", exchange: "NASDAQ" }, { name: "HGRD", exchange: "NYSE" }];
+    const article = { ...sample[1], created, stocks };
+    const quote = { ...sample[0], created, stocks, title: "Company announces a new partnership" };
+    const fixture = [article, quote, { ...quote, id: 999999999 }];
+    const fetcher = fakeFetch(() => ({ body: JSON.stringify(fixture), headers: { "content-type": "application/json" } }));
+    try {
+      const first = await pollBenzingaNews(c, { fetch: fetcher.fn, token: "test-benzinga-token" });
+      assert.equal(first.sources, 1);
+      assert.equal(first.newItems.length, 3);
+      const request = new URL(fetcher.calls[0].url);
+      assert.equal(request.origin + request.pathname, "https://api.benzinga.com/api/v2/news");
+      assert.equal(request.searchParams.get("pageSize"), "15");
+      assert.equal(request.searchParams.get("displayOutput"), "full");
+      assert.equal(request.searchParams.get("topic_group_by"), "or");
+      assert.equal(request.searchParams.get("token"), "test-benzinga-token");
+      assert.equal(fetcher.calls[0].headers.accept, "application/json");
+
+      const initialRows = await rows<{ id: string; body_text: string | null; url: string; source_item_id: string | null }>(
+        `select id, body_text, url, source_item_id from public.news where source = 'benzinga'`,
+      );
+      assert.ok(initialRows.every((row) => row.body_text === null));
+      assert.equal(initialRows.filter((row) => row.url === sample[0].url).length, 2);
+      assert.equal(await num(`select count(*) from public.news_companies where news_id = any($1::bigint[])`, [first.newItems]), 6);
+      const secondary = await getFeed(c, { cik: 9000002, category: "press", limit: 100 });
+      assert.equal(secondary.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).length, 3);
+      assert.ok(secondary.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).every((item) => item.ticker === "HGRD"));
+      const watchlist = await getFeed(c, { ciks: [9000002], category: "press", limit: 100 });
+      assert.ok(watchlist.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).every((item) => item.ticker === "HGRD"));
+      assert.equal((await getFeedItem(c, `n:${first.newItems[0]}`))?.typeLabel, "News");
+      assert.equal((await getFeedItem(c, `n:${first.newItems[0]}`, 9000002))?.ticker, "HGRD");
+      const counts = await feedCounts(c, new Date(Date.now() - 3_600_000), 9000002);
+      assert.ok(counts.press >= 3);
+
+      await c.query(
+        `insert into public.alert_subscriptions (channel, address, cik, status, unsubscribe_token)
+         values ('email', 'benzinga-secondary@example.org', 9000002, 'active', 'benzinga_secondary_test_token')`,
+      );
+      await matchNewItems(c);
+      assert.equal(await num(
+        `select count(*) from public.alert_events e join public.alert_subscriptions s on s.id = e.subscription_id
+          where s.address = 'benzinga-secondary@example.org' and e.item_type = 'news' and e.item_ref = any($1::text[])`,
+        [first.newItems.map(String)],
+      ), 3);
+
+      const again = await pollBenzingaNews(c, { fetch: fetcher.fn, token: "test-benzinga-token" });
+      assert.deepEqual(again.newItems, []);
+
+      await c.query(`update public.news_sources set can_store_body = true where key = 'benzinga'`);
+      const withBody = [{
+        ...article,
+        url: "https://www.benzinga.com/news/26/11/36444586/apple-announces-quarterly-results-body-test",
+      }];
+      const bodyFetcher = fakeFetch(() => ({ body: JSON.stringify(withBody), headers: { "content-type": "application/json" } }));
+      const stored = await pollBenzingaNews(c, { fetch: bodyFetcher.fn, token: "test-benzinga-token" });
+      const body = await one<{ body_text: string }>(`select body_text from public.news where id = $1`, [stored.newItems[0]]);
+      assert.ok(body?.body_text && !body.body_text.includes("<p"));
+
+      await c.query(`update public.news_sources set enabled = false where key = 'benzinga'`);
+      const disabled = await pollBenzingaNews(c, { fetch: fetcher.fn, token: "" });
+      assert.deepEqual(disabled, { sources: 0, newItems: [] });
+      assert.equal(fetcher.calls.length, 2, "disabled source is not requested");
+
+      await c.query(`update public.news_sources set enabled = true where key = 'benzinga'`);
+      await assert.rejects(
+        pollBenzingaNews(c, { fetch: fetcher.fn, token: "" }),
+        /BENZINGA_API_TOKEN is required/,
+      );
+      assert.equal(fetcher.calls.length, 2, "missing token fails before network access");
+    } finally {
+      await c.query(`delete from public.alert_events where subscription_id in (select id from public.alert_subscriptions where address = 'benzinga-secondary@example.org')`);
+      await c.query(`delete from public.alert_subscriptions where address = 'benzinga-secondary@example.org'`);
+      await c.query(`delete from public.news where source = 'benzinga'`);
+      await c.query(`update public.news_sources set enabled = true, can_store_body = false where key = 'benzinga'`);
+      resetBenzingaBackoff();
+    }
   });
 
   console.log("database: company profile and health");

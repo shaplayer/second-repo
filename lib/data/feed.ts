@@ -86,6 +86,7 @@ type Row = {
   category: string;
   release_title: string | null;
   original_url: string;
+  source_key: string;
   source_name: string;
   can_summarize: boolean;
   s_kind: "ai" | "rule" | null;
@@ -121,7 +122,7 @@ export function toFeedItem(r: Row): FeedItem {
     ticker: r.ticker,
     company: r.company ?? "",
     category,
-    typeLabel: filing ? formLabel(form, { listed: r.listed }) ?? "SEC filing" : PRESS_LABEL,
+    typeLabel: filing ? formLabel(form, { listed: r.listed }) ?? "SEC filing" : r.source_key === "benzinga" ? "News" : PRESS_LABEL,
     formCode: filing ? form : null,
     items: r.items ?? [],
     sourceName: r.source_name,
@@ -139,10 +140,10 @@ export function toFeedItem(r: Row): FeedItem {
 const EXACT = (col: string) => `to_char(${col} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 const FILING_COLS = `'f' as kind, f.accession as ref, f.accepted_at as at, ${EXACT("f.accepted_at")} as at_exact, f.cik::text as cik, c.ticker, c.name as company,
   (c.exchange is not null) as listed, f.form, f.items, f.category, f.title as release_title, f.primary_url as original_url,
-  'SEC.gov' as source_name, true as can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one, s.bullets as s_bullets`;
-const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EXACT("n.published_at")} as at_exact, n.cik::text as cik, c.ticker, c.name as company,
+  'sec' as source_key, 'SEC.gov' as source_name, true as can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one, s.bullets as s_bullets`;
+const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EXACT("n.published_at")} as at_exact, c.cik::text as cik, c.ticker, c.name as company,
   (c.exchange is not null) as listed, null::text as form, null::text[] as items, 'press' as category, n.title as release_title,
-  n.url as original_url, src.name as source_name, src.can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one,
+  n.url as original_url, src.key as source_key, src.name as source_name, src.can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one,
   s.bullets as s_bullets`;
 
 /**
@@ -155,6 +156,7 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   const p = (v: unknown) => `$${params.push(v)}`;
   const fWhere: string[] = ["f.category is not null"];
   const nWhere: string[] = ["n.source <> 'sec'"];
+  let releaseCompany = "n.cik";
   let filings = true;
   let releases = true;
 
@@ -165,20 +167,28 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   }
   if (q.cik !== undefined) {
     const x = p(q.cik);
+    releaseCompany = `${x}::bigint`;
     fWhere.push(`f.cik = ${x}`);
-    nWhere.push(`n.cik = ${x}`);
+    nWhere.push(`(n.cik = ${x} or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = ${x}))`);
   }
   if (q.ciks !== undefined) {
     const x = p(q.ciks);
+    if (q.cik === undefined) {
+      releaseCompany = `coalesce((select nc.cik from public.news_companies nc where nc.news_id = n.id
+        and nc.cik = any(${x}::bigint[]) order by (nc.cik = n.cik) desc, nc.cik limit 1), n.cik)`;
+    }
     fWhere.push(`f.cik = any(${x}::bigint[])`);
-    nWhere.push(`n.cik = any(${x}::bigint[])`);
+    nWhere.push(`(n.cik = any(${x}::bigint[]) or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = any(${x}::bigint[])))`);
   }
   const text = q.text?.trim();
   if (text) {
     const like = p(`%${text.replace(/[\\%_]/g, (m) => "\\" + m)}%`);
     const exact = p(text.replace(/^\$/, "").toUpperCase());
     fWhere.push(`(c.ticker = ${exact} or c.name ilike ${like} or f.title ilike ${like} or s.headline ilike ${like})`);
-    nWhere.push(`(c.ticker = ${exact} or c.name ilike ${like} or n.title ilike ${like})`);
+    nWhere.push(`(c.ticker = ${exact} or c.name ilike ${like} or n.title ilike ${like}
+      or exists (select 1 from public.news_companies nc join public.companies linked on linked.cik = nc.cik
+                  where nc.news_id = n.id and (linked.name ilike ${like}
+                    or exists (select 1 from public.company_tickers ct where ct.cik = nc.cik and ct.ticker = ${exact}))))`);
   }
   const before = parseCursor(q.before);
   const after = parseCursor(q.after);
@@ -207,7 +217,7 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   }
   if (releases) {
     halves.push(`(select ${RELEASE_COLS}
-        from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = n.cik
+        from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = ${releaseCompany}
         left join public.summaries s on s.news_id = n.id
        where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id::text ${dir} limit ${n})`);
   }
@@ -229,7 +239,7 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
 }
 
 /** One item by its id ("f:<accession>" or "n:<id>"), or null. */
-export async function getFeedItem(db: Db, id: string): Promise<FeedItem | null> {
+export async function getFeedItem(db: Db, id: string, companyCik?: number): Promise<FeedItem | null> {
   const [kind, ...rest] = id.split(":");
   const ref = rest.join(":");
   if (kind === "f" && /^\d{10}-\d{2}-\d{6}$/.test(ref)) {
@@ -245,10 +255,12 @@ export async function getFeedItem(db: Db, id: string): Promise<FeedItem | null> 
   if (kind === "n" && /^\d{1,18}$/.test(ref)) {
     const { rows } = await db.query<Row>(
       `select ${RELEASE_COLS}
-         from public.news n join public.news_sources src on src.key = n.source left join public.companies c on c.cik = n.cik
+         from public.news n join public.news_sources src on src.key = n.source left join public.companies c on c.cik =
+           case when $2::bigint is not null and (n.cik = $2 or exists
+             (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = $2)) then $2 else n.cik end
          left join public.summaries s on s.news_id = n.id
         where n.id = $1 and n.source <> 'sec'`,
-      [ref],
+      [ref, companyCik ?? null],
     );
     return rows[0] ? toFeedItem({ ...rows[0], company: rows[0].company ?? "" }) : null;
   }
@@ -259,10 +271,11 @@ export async function getFeedItem(db: Db, id: string): Promise<FeedItem | null> 
 export async function feedCounts(db: Db, since: Date, cik?: number): Promise<Record<Category | "all", number>> {
   const params: unknown[] = [since.toISOString()];
   const only = cik === undefined ? "" : ` and cik = $${params.push(cik)}`;
+  const newsOnly = cik === undefined ? "" : ` and (n.cik = $2 or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = $2))`;
   const { rows } = await db.query<{ category: string; n: string }>(
     `select category, count(*) as n from public.filings where accepted_at >= $1 and category is not null${only} group by category
      union all
-     select 'press', count(*) from public.news where published_at >= $1 and source <> 'sec' and cik is not null${only}`,
+     select 'press', count(*) from public.news n where n.published_at >= $1 and n.source <> 'sec' and n.cik is not null${newsOnly}`,
     params,
   );
   const out = { all: 0, press: 0, earnings: 0, news: 0, insider: 0, ipo: 0, proxy: 0 } as Record<Category | "all", number>;

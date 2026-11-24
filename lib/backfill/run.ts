@@ -442,13 +442,13 @@ async function stepNews(ctx: Ctx): Promise<StepReport> {
        select x.source, x.cik, x.ticker, x.company_name, x.title, x.url, x.published::timestamptz
          from jsonb_to_recordset($1::jsonb)
            as x(source text, cik bigint, ticker text, company_name text, title text, url text, published text)
-       on conflict (url) do nothing`,
+       on conflict do nothing`,
       [JSON.stringify(good)],
     );
     r.inserted += ins.rowCount ?? 0;
     skip(r, "already in news", good.length - (ins.rowCount ?? 0));
     const urls = [...new Set(good.map((g) => String(g.url)))];
-    await prove(ctx, "news", urls.length, `select count(*) from public.news where url = any($1::text[])`, [urls]);
+    await prove(ctx, "news", urls.length, `select count(distinct url) from public.news where url = any($1::text[])`, [urls]);
   });
   if (unknownSources.size) {
     r.notes.push(`Sources not copied: ${[...unknownSources].map(([s, n]) => `${s} (${n})`).join(", ")}`);

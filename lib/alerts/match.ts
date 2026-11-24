@@ -74,8 +74,9 @@ async function matchReleases(db: Db, limit: number): Promise<{ items: number; ev
          insert into public.alert_events (subscription_id, item_type, item_ref, dedupe_key, status)
          select s.id, 'news', t.id::text, 'news:' || t.id, case when s.cadence = 'digest' then 'digest' else 'queued' end
            from todo t
-           join public.alert_subscriptions s on s.cik = t.cik
-          where t.source <> 'sec' and t.cik is not null
+           join public.alert_subscriptions s on (s.cik = t.cik or exists
+             (select 1 from public.news_companies nc where nc.news_id = t.id and nc.cik = s.cik))
+          where t.source <> 'sec'
             and t.published_at > now() - make_interval(hours => $2)
             and s.status = 'active' and s.channel = 'email' and 'press' = any(s.categories)
          on conflict on constraint alert_events_once_per_person_per_item do nothing

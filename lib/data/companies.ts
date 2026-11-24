@@ -129,7 +129,10 @@ export async function trendingCompanies(db: Db, limit = 6): Promise<Trending[]> 
     `select c.ticker, c.name, count(*) as posts
        from (select cik from public.filings where accepted_at > now() - interval '24 hours' and category in ('earnings', 'news', 'ipo')
              union all
-             select cik from public.news where published_at > now() - interval '24 hours' and source <> 'sec' and cik is not null) x
+             select n.cik from public.news n where n.published_at > now() - interval '24 hours' and n.source <> 'sec' and n.cik is not null
+             union all
+             select nc.cik from public.news_companies nc join public.news n on n.id = nc.news_id
+              where n.published_at > now() - interval '24 hours' and n.source <> 'sec' and nc.cik is distinct from n.cik) x
        join public.companies c on c.cik = x.cik
       where c.ticker is not null
       group by c.cik, c.ticker, c.name
