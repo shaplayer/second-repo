@@ -6,6 +6,10 @@ import { GET as findTestRecipients, POST as changeTestAlert } from "../app/api/a
 import { POST as createApiKey } from "../app/api/admin/api-keys/route";
 import { POST as createLegacyApiKey } from "../app/api/admin/pick-api-keys/route";
 import { POST as savePick } from "../app/api/admin/pick/route";
+import AdminPage from "../app/admin/page";
+import AdminPicksPage from "../app/admin/picks/page";
+import AdminWorkerPage from "../app/admin/worker/page";
+import AdminApiKeysPage from "../app/admin/api-keys/page";
 import {
   categoriesFromAppPrefs,
   derivedToken,
@@ -47,6 +51,26 @@ const feedFilters: FeedFilters = { category: "all", mine: false, text: "", limit
 
 async function main() {
   console.log("unit tests");
+
+  await test("staff pages redirect signed-out visitors back to the requested route", async () => {
+    const savedDb = process.env.DATABASE_URL;
+    delete process.env.DATABASE_URL;
+    try {
+      for (const [path, page] of [
+        ["/admin", AdminPage],
+        ["/admin/picks", AdminPicksPage],
+        ["/admin/worker", AdminWorkerPage],
+        ["/admin/api-keys", AdminApiKeysPage],
+      ] as const) {
+        await assert.rejects(page(), (error: unknown) =>
+          error instanceof Error && "digest" in error &&
+          typeof error.digest === "string" && error.digest.includes(`/sign-in?next=${encodeURIComponent(path)}`));
+      }
+    } finally {
+      if (savedDb === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = savedDb;
+    }
+  });
 
   await test("test-alert API refuses cross-origin and unauthenticated requests", async () => {
     const savedDb = process.env.DATABASE_URL;

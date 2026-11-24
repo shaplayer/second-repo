@@ -11,7 +11,7 @@ The plan these steps belong to is `docs/MIGRATION_PLAN.md`.
 
 ## Pick API
 
-After applying migrations, staff can create an API key in **Staff → API key**. Copy it immediately;
+After applying migrations, staff can create an API key in **Staff → API keys** (`/admin/api-keys`). Copy it immediately;
 it is shown only once. Keep it on the application's server, never in browser code. Anyone with the
 key can publish picks and cause emails to be sent. The same key infrastructure can be used by future
 API endpoints, subject to their authorization rules. To revoke a key, a trusted database administrator
@@ -370,16 +370,18 @@ live feed on the homepage fills with filings.
 npm run admin:grant -- you@yourcompany.com
 ```
 
-Sign in on the site with that address (an emailed link), then open `/admin`. That page shows whether
-the worker is healthy, lets you post picks, and lists sponsor inquiries.
+Sign in on the site with that address (an emailed link), then open `/admin`. The overview shows
+counts, warnings and sponsor inquiries. Use **Picks** (`/admin/picks`) to post or edit picks,
+**Worker & test email** (`/admin/worker`) to check the worker and test emails, and **API keys**
+(`/admin/api-keys`) to create a key.
 
 #### Schedule a test email
 
-Under **Schedule a test email**, search for and select individual active subscribers to the free pick
-list, review the suggested subject and message, and choose a future time in the time zone shown by your
-browser. Confirm that real emails will be sent, then schedule the test. It is labelled as a test and
-does not publish a pick. The recent-tests list shows each recipient's result. Cancel remaining emails
-there if needed; an email already being sent cannot be recalled.
+On **Worker & test email**, under **Schedule a test email**, search for and select individual active
+subscribers to the free pick list, review the suggested subject and message, and choose a future time
+in the time zone shown by your browser. Confirm that real emails will be sent, then schedule the test.
+It is labelled as a test and does not publish a pick. The recent-tests list shows each recipient's
+result. Cancel remaining emails there if needed; an email already being sent cannot be recalled.
 
 The worker must be running with `ALERTS_SENDING=on`. With `off`, tests stay waiting until sending is
 turned on; they are not sent as an exception to the switch. The web app and worker need the same real,
@@ -391,7 +393,7 @@ send a duplicate after an uncertain failure. Check recipient results and worker 
 
 ### B4. Let it run beside the old site for two days
 
-Leave `ALERTS_SENDING=off`. Compare what the new feed shows with the old sites. On `/admin` every
+Leave `ALERTS_SENDING=off`. Compare what the new feed shows with the old sites. On `/admin/worker` every
 worker line should say "Working". Run the rehearsal copy (A5) during this time.
 
 ### B5. Fill in the legal pages

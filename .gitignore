@@ -12,3 +12,6 @@ npm-debug.log*
 # Written by the migration scripts; they can hold personal data
 backups/
 backfill-report-*.json
+*.tar.gz
+*.txt
+*audit_*.md
