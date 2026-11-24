@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { dateET } from "@/lib/time";
 import type { StockPick } from "@/lib/data/picks";
@@ -13,7 +13,7 @@ function dateInputET(iso: string): string {
 
 /** Staff form for posting or editing a scheduled pick. */
 export function PickForm({ listSize, pick }: { listSize: number; pick?: StockPick }) {
-  const router = useRouter();
+  const client = useQueryClient();
   const [sponsored, setSponsored] = useState(pick?.sponsored ?? false);
   const [state, setState] = useState<"idle" | "busy">("idle");
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
@@ -50,7 +50,7 @@ export function PickForm({ listSize, pick }: { listSize: number; pick?: StockPic
           const confirm = form.elements.namedItem("confirm");
           if (confirm instanceof HTMLInputElement) confirm.checked = false;
         }
-        router.refresh();
+        await client.invalidateQueries({ queryKey: ["admin"] });
       } else setNote({ ok: false, text: data.error ?? "That didn't go through." });
     }}>
       <div className="flex flex-wrap gap-3">

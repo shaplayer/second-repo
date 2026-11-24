@@ -1,15 +1,13 @@
 /** Tests for the pure rules: no network, no database. Run with `npm test`. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { InfiniteQueryObserver, QueryClient } from "@tanstack/react-query";
+import { InfiniteQueryObserver, QueryClient, QueryObserver } from "@tanstack/react-query";
 import { GET as findTestRecipients, POST as changeTestAlert } from "../app/api/admin/test-alerts/route";
 import { POST as createApiKey } from "../app/api/admin/api-keys/route";
 import { POST as createLegacyApiKey } from "../app/api/admin/pick-api-keys/route";
 import { POST as savePick } from "../app/api/admin/pick/route";
-import AdminPage from "../app/admin/page";
-import AdminPicksPage from "../app/admin/picks/page";
-import AdminWorkerPage from "../app/admin/worker/page";
-import AdminApiKeysPage from "../app/admin/api-keys/page";
+import { GET as loadAdminData } from "../app/api/admin/data/[section]/route";
+import { adminOptions, adminKey, AdminRequestError, recipientOptions } from "../lib/admin-query";
 import {
   categoriesFromAppPrefs,
   derivedToken,
@@ -52,23 +50,76 @@ const feedFilters: FeedFilters = { category: "all", mine: false, text: "", limit
 async function main() {
   console.log("unit tests");
 
-  await test("staff pages redirect signed-out visitors back to the requested route", async () => {
+  await test("all staff data endpoints refuse signed-out visitors without caching", async () => {
     const savedDb = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     try {
-      for (const [path, page] of [
-        ["/admin", AdminPage],
-        ["/admin/picks", AdminPicksPage],
-        ["/admin/worker", AdminWorkerPage],
-        ["/admin/api-keys", AdminApiKeysPage],
-      ] as const) {
-        await assert.rejects(page(), (error: unknown) =>
-          error instanceof Error && "digest" in error &&
-          typeof error.digest === "string" && error.digest.includes(`/sign-in?next=${encodeURIComponent(path)}`));
+      for (const section of ["session", "counts", "config", "jobs", "inquiries", "list-size", "picks", "scheduled-picks", "test-alerts"]) {
+        const response = await loadAdminData(new Request(`http://localhost:3000/api/admin/data/${section}`), {
+          params: Promise.resolve({ section }),
+        });
+        assert.equal(response.status, 401);
+        assert.equal(response.headers.get("cache-control"), "no-store");
       }
     } finally {
       if (savedDb === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = savedDb;
+    }
+  });
+
+  await test("staff queries reuse fresh data, invalidate immediately, and surface refresh failures", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    let value = 1;
+    let status = 200;
+    let requests = 0;
+    globalThis.fetch = async (url, init) => {
+      assert.equal(url, "/api/admin/data/list-size");
+      assert.equal(init?.cache, "no-store");
+      assert.ok(init?.signal instanceof AbortSignal);
+      requests++;
+      return Response.json(status === 200 ? value : { error: "Unavailable" }, { status });
+    };
+    const options = adminOptions("list-size");
+    const observer = new QueryObserver(client, { ...options, enabled: false, retry: false });
+    const passive = new QueryObserver(client, { ...options, enabled: false });
+    const unsubscribe = observer.subscribe(() => {});
+    const unsubscribePassive = passive.subscribe(() => {});
+    try {
+      await client.prefetchQuery(options);
+      assert.equal(client.getQueryData(adminKey("list-size")), 1);
+      value = 2;
+      assert.equal(await client.fetchQuery(options), 1, "fresh prefetched data must be reused");
+      observer.setOptions({ ...options, retry: false });
+      assert.equal(requests, 1, "mounting an active section must not refetch fresh data");
+      value = 3;
+      await client.invalidateQueries({ queryKey: ["admin"] });
+      assert.equal(client.getQueryData(adminKey("list-size")), 3);
+      assert.equal(passive.getCurrentResult().data, 3, "read-only consumers receive cache updates");
+      assert.equal(requests, 2, "invalidation refetches once, without a request from the passive reader");
+      client.setQueryData(adminKey("list-size"), 3, { updatedAt: Date.now() - 16_000 });
+      value = 4;
+      assert.equal(await client.fetchQuery(options), 4, "stale data must be fetched again");
+      status = 503;
+      await observer.refetch();
+      assert.equal(observer.getCurrentResult().isError, true);
+      assert.equal(observer.getCurrentResult().data, 4, "retain last data with an explicit error");
+      assert.ok(requests >= 4);
+      assert.ok(typeof options.retry === "function");
+      assert.equal(options.retry(0, new AdminRequestError("Denied", 403)), false);
+      assert.equal(options.retry(0, new AdminRequestError("Signed out", 401)), false);
+      for (const opts of [options, recipientOptions("test")]) {
+        assert.ok(typeof opts.refetchInterval === "number");
+        assert.ok(opts.refetchInterval > 0 && opts.refetchInterval < 60_000);
+        assert.equal(opts.refetchIntervalInBackground, true);
+        assert.equal(opts.refetchOnWindowFocus, true);
+        assert.equal(opts.refetchOnReconnect, true);
+      }
+    } finally {
+      unsubscribe();
+      unsubscribePassive();
+      client.clear();
+      globalThis.fetch = originalFetch;
     }
   });
 

@@ -6,7 +6,7 @@
 import type { Client, Pool, PoolClient } from "pg";
 import { inTransaction } from "../alerts/subscriptions";
 import { normalizeTicker } from "../sec/companies";
-import { dateET } from "../time";
+export { sponsorLine } from "../pick-disclosure";
 
 type Db = Pool | PoolClient | Client;
 
@@ -53,13 +53,6 @@ function toPick(r: Row): StockPick {
     title: r.title, why: r.why, postedAt: new Date(r.posted_at).toISOString(), startsAt: new Date(r.starts_at).toISOString(), sponsor, disclosureText: r.disclosure_text,
     sourceUrl: r.source_url, ownsShares: r.owns_shares, ownershipNote: r.ownership_note ?? "",
   };
-}
-
-/** The sentence that must accompany a sponsored pick everywhere it appears: page, email, text. */
-export function sponsorLine(p: StockPick): string | null {
-  if (!p.sponsored) return null;
-  if (p.sponsor) return `Sponsored. Paid for by ${p.sponsor.payer}: ${p.sponsor.amount}, ${p.sponsor.form}. Start date: ${dateET(p.startsAt)}.`;
-  return p.disclosureText?.trim() || "Sponsored.";
 }
 
 /** The newest pick that is not sponsored (the "today's pick" card), or null. */

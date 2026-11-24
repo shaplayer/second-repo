@@ -1,8 +1,10 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import type { TestAlertJob } from "@/lib/alerts/test-alerts";
+import { recipientOptions } from "@/lib/admin-query";
+import { AdminRowsSkeleton, SkeletonBlock } from "./AdminSkeleton";
 
 type Recipient = { id: string; address: string };
 const inputTime = (date: Date) => {
@@ -11,14 +13,15 @@ const inputTime = (date: Date) => {
 };
 
 export function TestAlertForm({ jobs }: { jobs: TestAlertJob[] }) {
-  const router = useRouter();
+  const client = useQueryClient();
   const [zone, setZone] = useState("");
   const [when, setWhen] = useState("");
   const [subject, setSubject] = useState("BigStocks alert delivery test");
   const [body, setBody] = useState("This is a test of the BigStocks email alert system. No action is needed.");
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Recipient[]>([]);
-  const [searched, setSearched] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const recipients = useQuery(recipientOptions(searchQuery));
+  const results = recipients.data?.recipients ?? [];
   const [selected, setSelected] = useState<Recipient[]>([]);
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -32,25 +35,10 @@ export function TestAlertForm({ jobs }: { jobs: TestAlertJob[] }) {
     setZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
     setWhen(inputTime(new Date(Date.now() + 10 * 60_000)));
   }, []);
-  const pending = jobs.some((job) => job.queued > 0 || job.sending > 0);
-  useEffect(() => {
-    if (!pending) return;
-    const timer = setInterval(() => router.refresh(), 10_000);
-    return () => clearInterval(timer);
-  }, [pending, router]);
-
-  const search = async () => {
-    setBusy(true);
+  const search = () => {
     setNote(null);
-    try {
-      const response = await fetch(`/api/admin/test-alerts?q=${encodeURIComponent(query)}`, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Could not load recipients.");
-      setResults(data.recipients);
-      setSearched(true);
-    } catch (error) {
-      setNote({ ok: false, text: error instanceof Error ? error.message : "Could not load recipients." });
-    } finally { setBusy(false); }
+    if (searchQuery === query.trim()) void recipients.refetch();
+    else setSearchQuery(query.trim());
   };
 
   const schedule = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -72,7 +60,7 @@ export function TestAlertForm({ jobs }: { jobs: TestAlertJob[] }) {
       setSelected([]);
       setConfirm(false);
       setNote({ ok: true, text: "Test scheduled. Real emails will be sent when the worker is enabled." });
-      router.refresh();
+      await client.invalidateQueries({ queryKey: ["admin"] });
     } catch (error) {
       setNote({ ok: false, text: error instanceof Error ? error.message : "Could not schedule the test." });
     } finally { setBusy(false); }
@@ -88,7 +76,7 @@ export function TestAlertForm({ jobs }: { jobs: TestAlertJob[] }) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Could not cancel the test.");
       setNote({ ok: true, text: "Cancelled remaining emails. An email already being sent cannot be recalled." });
-      router.refresh();
+      await client.invalidateQueries({ queryKey: ["admin"] });
     } catch (error) {
       setNote({ ok: false, text: error instanceof Error ? error.message : "Could not cancel the test." });
     } finally { setBusy(false); }
@@ -110,7 +98,12 @@ export function TestAlertForm({ jobs }: { jobs: TestAlertJob[] }) {
           <input className="field" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Enter at least 2 characters" />
         </label>
         <button type="button" className="btn btn-soft self-start" disabled={busy || query.trim().length < 2} onClick={search}>Search</button>
-        {searched && results.length === 0 && <p className="m-0 text-sm text-muted">No eligible subscribers found.</p>}
+        {searchQuery !== null && recipients.isPending && <div role="status" aria-busy="true">
+          <span className="sr-only">Recipients are still loading.</span>
+          <AdminRowsSkeleton />
+        </div>}
+        {recipients.isError && <p role="alert" className="m-0 text-sm text-bad">Could not load recipients. Search again to retry.</p>}
+        {recipients.isSuccess && results.length === 0 && <p className="m-0 text-sm text-muted">No eligible subscribers found.</p>}
         {results.length > 0 && <div className="flex flex-col gap-2 text-sm">
           <span className="text-muted">Up to 30 matches; refine the search to find others.</span>
           {results.map((r) => <label key={r.id} className="flex items-center gap-2 break-all">
@@ -123,7 +116,7 @@ export function TestAlertForm({ jobs }: { jobs: TestAlertJob[] }) {
             <button type="button" className="underline" onClick={() => setSelected((s) => s.filter((x) => x.id !== r.id))}>Remove</button>
           </div>)}
         </div>
-        <label className="flex flex-col gap-1 text-sm font-bold">Send at ({zone || "loading your time zone"})
+        <label className="flex flex-col gap-1 text-sm font-bold">Send at {zone ? `(${zone})` : <SkeletonBlock className="h-4 w-40" />}
           <input className="field" type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
         </label>
         {timePreview && <p className="m-0 text-sm text-muted">Selected time: {timePreview}</p>}

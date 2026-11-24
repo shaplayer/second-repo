@@ -375,6 +375,20 @@ counts, warnings and sponsor inquiries. Use **Picks** (`/admin/picks`) to post o
 **Worker & test email** (`/admin/worker`) to check the worker and test emails, and **API keys**
 (`/admin/api-keys`) to create a key.
 
+The staff panel renders in the browser, not on the server. TanStack Query reads staff-only,
+uncached backend endpoints every 30 seconds, including while the tab is in the background.
+Data stays fresh in the browser cache for 15 seconds and unused entries are kept for one minute.
+Mounting a section, returning to the tab or reconnecting refreshes stale data, without repeating
+freshly prefetched requests. Saving a pick or test email refreshes affected data immediately.
+Admin routes use full-page, layout-matched skeletons while
+initial data loads, rather than visible loading messages or partially rendered forms. Route requests
+start in parallel, and each section keeps its own error boundary. Initial failures can be retried
+with **Try again**, while failed background refreshes
+keep the last loaded data visible with a warning.
+Browser suspension, a lost connection or an unavailable backend can delay updates; errors are
+shown rather than claiming the last loaded data is fresh. API keys are still shown only once
+after creation and are never polled or cached.
+
 #### Schedule a test email
 
 On **Worker & test email**, under **Schedule a test email**, search for and select individual active
