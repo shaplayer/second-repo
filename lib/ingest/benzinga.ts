@@ -3,9 +3,12 @@
  */
 import { normalizeTicker } from "../sec/companies";
 import { htmlToText } from "../sec/text";
+import { inTransaction } from "../alerts/subscriptions";
 import { PRESS_USER_AGENT } from "./press";
-import type { Db } from "./db";
 import { isLawFirmNotice, type PressItem } from "./rss";
+import type { Client, Pool, PoolClient } from "pg";
+
+type Db = Pool | PoolClient | Client;
 
 export const BENZINGA_API_URL = "https://api.benzinga.com/api/v2/news";
 export const BENZINGA_PAGE_SIZE = 20;
@@ -45,7 +48,7 @@ function articleTickers(stocks: unknown): string[] {
   return [...tickers];
 }
 
-type BenzingaItem = PressItem & { tickers: string[]; sourceItemId: string | null };
+export type BenzingaItem = PressItem & { tickers: string[]; sourceItemId: string | null; articleId: string | null };
 const MARKET_MOVE = /\b(?:stocks?|shares?|trading|sectors?)\b.{0,80}\b(?:rises?|rose|rising|falls?|fell|falling|jumps?|jumped|jumping|surges?|surged|surging|plunges?|plunged|plunging|sliding|slides?|slid|drops?|dropped|dropping|lower|higher|gains?|gained|gaining|losses?|soars?|soared|soaring|sinks?|sank|sinking|outperforms?|underperforms?)\b|\b(?:rises?|rose|rising|falls?|fell|falling|jumps?|jumped|surges?|surged|plunges?|plunged|slides?|slid|drops?|dropped|sinks?|sank|outperforms?|underperforms?)\b.{0,80}\b(?:stocks?|shares?|trading|sectors?)\b/i;
 
 /** Converts Benzinga's article array into the normalized shape shared by news sources. */
@@ -54,6 +57,7 @@ export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
 
   const out: BenzingaItem[] = [];
   const seen = new Set<string>();
+  const seenIds = new Set<string>();
   for (const value of payload) {
     if (!isRecord(value)) continue;
     const title = typeof value.title === "string" ? value.title.trim() : "";
@@ -71,12 +75,13 @@ export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
     if (quote && !id) continue;
     const sourceItemId = quote ? id : null;
     const key = sourceItemId ? `id:${sourceItemId}` : `url:${url}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key) || (id && seenIds.has(id))) continue;
 
     const content = typeof value.body === "string" && value.body.trim()
       ? value.body
       : typeof value.teaser === "string" ? value.teaser : "";
     seen.add(key);
+    if (id) seenIds.add(id);
     out.push({
       title,
       url,
@@ -84,6 +89,7 @@ export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
       ticker: tickers[0],
       tickers,
       sourceItemId,
+      articleId: id,
       usListed: true,
       company: null,
       description: htmlToText(content),
@@ -156,16 +162,31 @@ export async function pollBenzingaNews(
   if (!source) return { sources: 0, newItems: [] };
 
   const items = await fetchBenzingaNews(opts);
-  if (!items.length) return { sources: 1, newItems: [] };
-  const records = items.map((item) => ({
-    url: item.url, source_item_id: item.sourceItemId, title: item.title.slice(0, 500),
-    published_at: item.publishedAt, tickers: item.tickers,
-    body_text: source.can_store_body && item.description ? item.description : null,
-  }));
-  const { rows: inserted } = await db.query<{ id: string }>(
-    `with input as (
+  return storeBenzingaNews(db, items);
+}
+
+/** Both the REST poller and stream serialize their writes, including company links. */
+export async function storeBenzingaNews(
+  db: Db,
+  items: BenzingaItem[],
+): Promise<{ sources: number; newItems: number[] }> {
+  return inTransaction(db, async (c) => {
+    await c.query(`select pg_advisory_xact_lock(hashtext('bigstocks:benzinga:ingest'))`);
+    const { rows } = await c.query<{ can_store_body: boolean }>(
+      `select can_store_body from public.news_sources where key = 'benzinga' and enabled for share`,
+    );
+    const source = rows[0];
+    if (!source) return { sources: 0, newItems: [] };
+    if (!items.length) return { sources: 1, newItems: [] };
+    const records = items.map((item) => ({
+      url: item.url, source_item_id: item.sourceItemId, article_id: item.articleId, title: item.title.slice(0, 500),
+      published_at: item.publishedAt, tickers: item.tickers,
+      body_text: source.can_store_body && item.description ? item.description : null,
+    }));
+    const { rows: inserted } = await c.query<{ id: string }>(
+      `with input as (
        select * from jsonb_to_recordset($1::jsonb)
-         as x(url text, source_item_id text, title text, published_at timestamptz, tickers jsonb, body_text text)
+         as x(url text, source_item_id text, article_id text, title text, published_at timestamptz, tickers jsonb, body_text text)
      ), resolved as (
        select i.*, (select ct.cik from jsonb_array_elements_text(i.tickers) with ordinality t(ticker, pos)
                       join public.company_tickers ct on ct.ticker = t.ticker order by t.pos limit 1) as cik,
@@ -175,25 +196,33 @@ export async function pollBenzingaNews(
        insert into public.news (source, source_item_id, cik, ticker, company_name, title, url, published_at, body_text)
        select 'benzinga', r.source_item_id, r.cik, r.ticker, c.name, r.title, r.url, least(r.published_at, now()), r.body_text
          from resolved r left join public.companies c on c.cik = r.cik
+        where not exists (select 1 from public.benzinga_articles b where b.article_id = r.article_id)
        on conflict do nothing returning id, url, source_item_id
      ), targets as (
-       select id, url, source_item_id from added
-       union all
-       select n.id, n.url, n.source_item_id from public.news n join input i
+       select a.id, i.article_id, i.tickers from added a join input i
+         on (i.source_item_id is not null and a.source_item_id = i.source_item_id)
+           or (i.source_item_id is null and a.source_item_id is null and a.url = i.url)
+       union
+       select n.id, i.article_id, i.tickers from public.news n join input i
          on n.source = 'benzinga' and
            ((i.source_item_id is not null and n.source_item_id = i.source_item_id)
              or (i.source_item_id is null and n.source_item_id is null and n.url = i.url))
+       union
+       select b.news_id, i.article_id, i.tickers from public.benzinga_articles b join input i on i.article_id = b.article_id
+     ), identities as (
+       insert into public.benzinga_articles (article_id, news_id)
+       select distinct article_id, id from targets where article_id is not null
+       on conflict do nothing returning article_id
      ), associations as (
        insert into public.news_companies (news_id, cik)
-       select distinct n.id, ct.cik from targets n join input i
-         on (i.source_item_id is not null and n.source_item_id = i.source_item_id)
-           or (i.source_item_id is null and n.source_item_id is null and n.url = i.url)
-         cross join lateral jsonb_array_elements_text(i.tickers) t(ticker)
+       select distinct n.id, ct.cik from targets n
+         cross join lateral jsonb_array_elements_text(n.tickers) t(ticker)
          join public.company_tickers ct on ct.ticker = t.ticker
        on conflict do nothing returning news_id
      )
      select id::text from added`,
-    [JSON.stringify(records)],
-  );
-  return { sources: 1, newItems: inserted.map((r) => Number(r.id)) };
+      [JSON.stringify(records)],
+    );
+    return { sources: 1, newItems: inserted.map((r) => Number(r.id)) };
+  });
 }

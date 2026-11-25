@@ -7,13 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "tsc --noEmit",
-    "test": "tsx scripts/test-unit.ts && tsx scripts/test-health.ts && tsx scripts/test-ingest.ts && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available && tsx scripts/test-summaries.ts --if-available && tsx scripts/test-worker.ts --if-available",
+    "test": "tsx scripts/test-unit.ts && tsx scripts/test-health.ts && tsx scripts/test-ingest.ts && tsx scripts/test-benzinga-stream.ts --if-available && tsx scripts/test-db.ts --if-available && tsx scripts/test-alerts.ts --if-available && tsx scripts/test-summaries.ts --if-available && tsx scripts/test-worker.ts --if-available",
     "test:db": "tsx scripts/test-db.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "companies:load": "tsx scripts/load-companies.ts",
     "backfill": "tsx scripts/backfill.ts",
     "backup": "bash scripts/backup.sh",
     "worker": "tsx scripts/worker.ts",
+    "worker:benzinga": "tsx scripts/benzinga-worker.ts",
     "dev:seed": "tsx scripts/dev-seed.ts",
     "admin:grant": "tsx scripts/admin-grant.ts",
     "env:bkup": "ts=$(date +%Y%m%d%H%M%S); cp .env \".env.$ts.bkup\" && printf 'Environment backup created at .env.%s.bkup\\n' \"$ts\""
@@ -28,7 +29,8 @@
     "pg": "8.16.3",
     "react": "19.2.9",
     "react-dom": "19.2.9",
-    "tsx": "4.20.6"
+    "tsx": "4.20.6",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "4.1.18",
@@ -37,6 +39,7 @@
     "@types/pg": "8.15.5",
     "@types/react": "19.2.2",
     "@types/react-dom": "19.2.2",
+    "@types/ws": "^8.18.1",
     "tailwindcss": "4.1.18",
     "typescript": "5.9.3"
   },

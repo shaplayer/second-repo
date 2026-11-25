@@ -1,12 +1,16 @@
 /** Tests for the pure rules: no network, no database. Run with `npm test`. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { InfiniteQueryObserver, QueryClient, QueryObserver } from "@tanstack/react-query";
+import { InfiniteQueryObserver, QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { GET as findTestRecipients, POST as changeTestAlert } from "../app/api/admin/test-alerts/route";
 import { POST as createApiKey } from "../app/api/admin/api-keys/route";
 import { POST as createLegacyApiKey } from "../app/api/admin/pick-api-keys/route";
 import { POST as savePick } from "../app/api/admin/pick/route";
+import { POST as saveNewsSource } from "../app/api/admin/news-sources/route";
 import { GET as loadAdminData } from "../app/api/admin/data/[section]/route";
+import { NewsSourceForm } from "../components/admin/NewsSourceForm";
 import { adminOptions, adminKey, AdminRequestError, recipientOptions } from "../lib/admin-query";
 import {
   categoriesFromAppPrefs,
@@ -21,6 +25,7 @@ import {
   type Candidate,
 } from "../lib/backfill/mapping";
 import type { FeedItem } from "../lib/data/feed";
+import { parseNewsSourceUpdate } from "../lib/data/news-sources";
 import { connectionConfig } from "../lib/db/connect";
 import { groupInsiderTrades, insiderGroupText } from "../lib/feed-groups";
 import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
@@ -54,7 +59,7 @@ async function main() {
     const savedDb = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     try {
-      for (const section of ["session", "counts", "config", "jobs", "inquiries", "list-size", "picks", "scheduled-picks", "test-alerts"]) {
+      for (const section of ["session", "counts", "config", "jobs", "inquiries", "list-size", "picks", "scheduled-picks", "test-alerts", "news-sources"]) {
         const response = await loadAdminData(new Request(`http://localhost:3000/api/admin/data/${section}`), {
           params: Promise.resolve({ section }),
         });
@@ -143,10 +148,40 @@ async function main() {
       assert.equal((await savePick(new Request("http://localhost:3000/api/admin/pick", {
         method: "POST", headers: { origin: "https://other.example" },
       }))).status, 403);
+      assert.equal((await saveNewsSource(new Request("http://localhost:3000/api/admin/news-sources", { method: "POST" }))).status, 403);
+      assert.equal((await saveNewsSource(new Request("http://localhost:3000/api/admin/news-sources", {
+        method: "POST", headers: { origin: "https://other.example" },
+      }))).status, 403);
     } finally {
       if (savedDb === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = savedDb;
     }
+  });
+
+  await test("news source settings require valid flags, a terms note, and keep SEC on", () => {
+    const original = { enabled: false, can_store_body: false, can_summarize: false, terms_note: null };
+    const settings = { ...original, enabled: true, terms_note: "  Agreement checked  " };
+    assert.equal(parseNewsSourceUpdate({ key: "benzinga", settings, original }).settings.terms_note, "Agreement checked");
+    assert.throws(() => parseNewsSourceUpdate({ key: "sec", settings, original }), /SEC/);
+    assert.throws(() => parseNewsSourceUpdate({ key: "benzinga", settings: { ...settings, terms_note: " " }, original }), /terms note/);
+    assert.throws(() => parseNewsSourceUpdate({ key: "benzinga", settings: { ...settings, enabled: "true" }, original }), /Invalid/);
+    assert.throws(() => parseNewsSourceUpdate({ key: "INVALID", settings, original }), /Invalid/);
+  });
+
+  await test("news source forms keep editable fields with their own save action", () => {
+    const source = { key: "benzinga", name: "Benzinga", enabled: true, can_store_body: false, can_summarize: false, terms_note: "Terms checked" };
+    const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() },
+      createElement("div", null,
+        createElement(NewsSourceForm, { source }),
+        createElement(NewsSourceForm, { source: { ...source, key: "sec", name: "SEC.gov" } }),
+      ),
+    ));
+    const form = markup.match(/<form\b[\s\S]*?<\/form>/g);
+    assert.equal(form?.length, 1);
+    assert.equal((form[0].match(/<input\b/g) ?? []).length, 3);
+    assert.match(form[0], /<textarea\b/);
+    assert.match(form[0], /aria-label="Save Benzinga"/);
+    assert.match(markup, /Always on/);
   });
 
   await test("SEC User-Agent: missing, placeholder and incomplete values are refused", () => {

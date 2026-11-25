@@ -190,7 +190,7 @@ export async function runWorker({ db, sec, sending, summaries, once, onceDaily, 
       await setJobDetail(db, "filings:last", { pages: r.fetchedPages, new: r.newFilings.length, alerts: m.events, at: new Date().toISOString() });
     }),
     () => every("details", () => 2_000, () => processFilingDetails(db, sec, { limit: 10 })),
-    () => every("press", () => 60_000, async () => {
+    () => every("press", () => 600_000, async () => {
       console.log(`Polling press feeds at ${new Date().toISOString()}`);
       await pollPressFeeds(db, pressFetch ? { fetch: pressFetch } : {});
       await pollBenzingaNews(db, pressFetch ? { fetch: pressFetch } : {});

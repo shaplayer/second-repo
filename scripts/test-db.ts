@@ -22,6 +22,7 @@ import { signInVerifiedEmail } from "../lib/auth/accounts";
 import { authenticateApiKey } from "../lib/auth/api-keys";
 import { sha256Hex } from "../lib/auth/secret";
 import { getFeed } from "../lib/data/feed";
+import { listNewsSources, parseNewsSourceUpdate, updateNewsSource } from "../lib/data/news-sources";
 import { loadCompanies } from "../lib/db/companies";
 import { migrate, readMigrations } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
@@ -268,6 +269,28 @@ async function main() {
       const fourth = await migrate(app);
       assert.equal(fourth.applied.length, 0, "running again changes nothing");
       assert.equal(fourth.alreadyApplied, 7 + NEWER);
+    });
+
+    await test("staff can update existing source settings without overwriting concurrent changes", async () => {
+      await app.query("begin");
+      try {
+        const source = (await listNewsSources(app)).find((item) => item.key === "benzinga");
+        assert.ok(source);
+        const update = parseNewsSourceUpdate({
+          key: source.key, original: source,
+          settings: { ...source, enabled: false, can_store_body: true, can_summarize: true, terms_note: "Permissions confirmed." },
+        });
+        const saved = await updateNewsSource(app, update);
+        assert.equal(saved?.enabled, false);
+        assert.equal(saved?.can_store_body, true);
+        assert.equal(saved?.can_summarize, true);
+        assert.equal(saved?.terms_note, "Permissions confirmed.");
+        assert.equal(await updateNewsSource(app, update), null);
+        assert.equal(await updateNewsSource(app, { ...update, key: "not_present" }), null);
+        assert.equal(await updateNewsSource(app, { ...update, key: "sec" }), null);
+      } finally {
+        await app.query("rollback");
+      }
     });
 
     await test("a failing migration is rolled back completely", async () => {

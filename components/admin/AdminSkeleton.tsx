@@ -69,6 +69,8 @@ export function AdminPageSkeleton({ pathname }: { pathname: string }) {
       </> : pathname === "/admin/worker" ? <>
         <CardSkeleton><AdminRowsSkeleton rows={4} /></CardSkeleton>
         <CardSkeleton><TestFormSkeleton /></CardSkeleton>
+      </> : pathname === "/admin/news-sources" ? <>
+        <CardSkeleton><AdminRowsSkeleton rows={4} /></CardSkeleton>
       </> : pathname === "/admin/api-keys" ? (
         <CardSkeleton>
           <SkeletonBlock className="h-4 w-full" />
@@ -97,7 +99,7 @@ export function AdminStaffSkeleton({ pathname }: { pathname: string }) {
   return <div className="flex flex-col gap-5">
     <SkeletonBlock className="h-10 w-24" />
     <div aria-hidden="true" className="flex flex-wrap gap-2">
-      {["w-24", "w-20", "w-44", "w-28"].map((width) => <SkeletonBlock key={width} className={`h-11 rounded-full ${width}`} />)}
+      {["w-24", "w-20", "w-44", "w-32", "w-28"].map((width) => <SkeletonBlock key={width} className={`h-11 rounded-full ${width}`} />)}
     </div>
     <SkeletonBlock className="h-4 w-48" />
     <AdminPageSkeleton pathname={pathname} />

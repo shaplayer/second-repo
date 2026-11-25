@@ -1,6 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { StockPick } from "./data/picks";
 import type { TestAlertJob } from "./alerts/test-alerts";
+import type { NewsSource } from "./data/news-sources";
 
 export type AdminData = {
   session: { id: string };
@@ -12,6 +13,7 @@ export type AdminData = {
   picks: StockPick[];
   "scheduled-picks": StockPick[];
   "test-alerts": TestAlertJob[];
+  "news-sources": NewsSource[];
 };
 
 export class AdminRequestError extends Error {

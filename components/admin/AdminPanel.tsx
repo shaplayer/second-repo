@@ -13,6 +13,7 @@ const routeSections: Record<string, (keyof AdminData)[]> = {
   "/admin": ["config", "jobs", "counts", "inquiries"],
   "/admin/picks": ["list-size", "scheduled-picks", "picks"],
   "/admin/worker": ["jobs", "test-alerts"],
+  "/admin/news-sources": ["news-sources"],
 };
 
 function AdminContent({ children, pathname }: { children: React.ReactNode; pathname: string }) {

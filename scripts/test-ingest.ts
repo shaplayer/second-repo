@@ -897,9 +897,10 @@ async function parserTests() {
     const request = new URL(good.calls[0].url);
     assert.equal(request.origin + request.pathname, "https://api.benzinga.com/api/v2/news");
     assert.deepEqual(Object.fromEntries(request.searchParams), {
-      pageSize: "15",
+      pageSize: "20",
       displayOutput: "full",
       topic_group_by: "or",
+      sort: "created:desc",
       token: "test-benzinga-token",
     });
     assert.equal(good.calls[0].headers.accept, "application/json");
@@ -1404,7 +1405,7 @@ async function databaseTests(c: Client) {
       assert.equal(first.newItems.length, 3);
       const request = new URL(fetcher.calls[0].url);
       assert.equal(request.origin + request.pathname, "https://api.benzinga.com/api/v2/news");
-      assert.equal(request.searchParams.get("pageSize"), "15");
+      assert.equal(request.searchParams.get("pageSize"), "20");
       assert.equal(request.searchParams.get("displayOutput"), "full");
       assert.equal(request.searchParams.get("topic_group_by"), "or");
       assert.equal(request.searchParams.get("token"), "test-benzinga-token");
@@ -1443,6 +1444,7 @@ async function databaseTests(c: Client) {
       await c.query(`update public.news_sources set can_store_body = true where key = 'benzinga'`);
       const withBody = [{
         ...article,
+        id: 999999998,
         url: "https://www.benzinga.com/news/26/11/36444586/apple-announces-quarterly-results-body-test",
       }];
       const bodyFetcher = fakeFetch(() => ({ body: JSON.stringify(withBody), headers: { "content-type": "application/json" } }));
