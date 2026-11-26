@@ -28,7 +28,7 @@ import type { FeedItem } from "../lib/data/feed";
 import { parseNewsSourceUpdate } from "../lib/data/news-sources";
 import { connectionConfig } from "../lib/db/connect";
 import { groupInsiderTrades, insiderGroupText } from "../lib/feed-groups";
-import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
+import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, refreshDiversifiedFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { readMigrations } from "../lib/db/migrate";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
@@ -445,6 +445,36 @@ async function main() {
       const merged = prependFeed(displayed, updates);
       assert.equal(merged.pages[0].next, feedPost(2).cursor);
       assert.deepEqual(merged.pages[0].items.map((item) => item.id), ["n:3", "n:2"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
+  });
+
+  await test("live feed: refreshing the diversified feed resets pagination and advances the live cursor", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    const old: FeedData = { pages: [{ items: [feedPost(3)], next: "old" }, { items: [feedPost(1)], next: null }], pageParams: [null, "old"] };
+    const pending: LiveFeed = { items: [feedPost(4)], latestCursor: feedPost(4).cursor, next: null };
+    client.setQueryData(feedKey(feedFilters), old);
+    client.setQueryData(liveFeedKey(feedFilters), pending);
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://localhost");
+      assert.equal(url.searchParams.has("after"), false);
+      assert.equal(url.searchParams.has("before"), false);
+      return Response.json({ items: [feedPost(5), feedPost(2)], next: "new", latestCursor: feedPost(5).cursor, hasMore: true });
+    };
+    try {
+      await refreshDiversifiedFeed(client, feedFilters);
+      const data = client.getQueryData<FeedData>(feedKey(feedFilters))!;
+      assert.deepEqual(data.pages.map((page) => page.items.map((item) => item.id)), [["n:5", "n:2"]]);
+      assert.deepEqual(data.pageParams, [null]);
+      assert.equal(data.pages[0].next, "new");
+      assert.deepEqual(client.getQueryData<LiveFeed>(liveFeedKey(feedFilters)), { items: [], latestCursor: feedPost(5).cursor, next: "new" });
+
+      globalThis.fetch = async () => Response.json({}, { status: 503 });
+      await assert.rejects(refreshDiversifiedFeed(client, feedFilters), /not available/);
+      assert.equal(client.getQueryData(feedKey(feedFilters)), data);
     } finally {
       globalThis.fetch = originalFetch;
       client.clear();

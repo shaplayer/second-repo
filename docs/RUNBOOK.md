@@ -348,6 +348,10 @@ articles unchanged and visible; previously sent alerts cannot be recalled.
 Existing non-quote articles acquire their Benzinga IDs when they are next seen with the same URL.
 The live feed checks for new posts every ten seconds using publication time, so a delayed replay
 older than the latest visible post may require a page refresh to appear.
+The unfiltered main feed favors different companies and sources from the past 24 hours. When more
+than one company has recent news, its first page shows at most two items per company; the remaining
+items are still available through earlier-post pagination. If only one company has recent news,
+the feed fills normally. Refreshing the feed for new posts restarts earlier-post pagination.
 The workers associate each item with
 all recognized US companies; quote-page items use Benzinga's item ID to distinguish repeated links.
 Price-movement and trading-advice headlines are filtered out. Confirm the licence permits headline

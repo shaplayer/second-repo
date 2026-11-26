@@ -630,10 +630,10 @@ async function main() {
       }
     });
 
-    await test("feed: the first page represents fresh sources without skipping or repeating older items", async () => {
+    await test("feed: company and text filters remain chronological", async () => {
       await app.query("begin");
       try {
-        await app.query(`update public.filings set accepted_at = now() - interval '7 minutes', title = 'Diversity test'
+        await app.query(`update public.filings set accepted_at = now() - interval '7 minutes', title = 'Diversity test', category = 'news'
           where accession = '0000320193-26-000018'`);
         await app.query(`insert into public.news (id, source, cik, title, url, published_at)
           overriding system value values
@@ -647,7 +647,7 @@ async function main() {
           (9008, 'globenewswire', 320193, 'Diversity test', 'https://example.org/diversity-9008', now() - interval '25 hours')`);
 
         const first = await getFeed(app, { cik: 320193, text: "Diversity test", limit: 4 });
-        assert.deepEqual(first.items.map((item) => item.id), ["n:9001", "f:0000320193-26-000018", "n:9006", "n:9007"]);
+        assert.deepEqual(first.items.map((item) => item.id), ["n:9001", "n:9002", "n:9003", "n:9004"]);
         assert.equal(first.latestCursor, first.items[0].cursor);
         assert.ok(first.next);
         const seen = first.items.map((item) => item.id);
@@ -658,13 +658,62 @@ async function main() {
           next = page.next;
         }
         assert.equal(new Set(seen).size, seen.length);
-        for (const id of ["n:9002", "n:9003", "n:9004", "n:9005", "n:9008"]) assert.ok(seen.includes(id));
+        for (const id of ["n:9005", "n:9006", "n:9007", "n:9008", "f:0000320193-26-000018"]) assert.ok(seen.includes(id), `missing ${id}: ${seen.join(", ")}`);
 
         const filtered = await getFeed(app, { category: "press", text: "Diversity test", limit: 3 });
-        assert.deepEqual(filtered.items.map((item) => item.id), ["n:9001", "n:9006", "n:9007"]);
-        const newer = await getFeed(app, { cik: 320193, text: "Diversity test", after: first.items[1].cursor, limit: 2 });
-        assert.deepEqual(newer.items.map((item) => item.id), ["n:9005", "n:9004"]);
+        assert.deepEqual(filtered.items.map((item) => item.id), ["n:9001", "n:9002", "n:9003"]);
+        const newer = await getFeed(app, { cik: 320193, text: "Diversity test", after: first.items[3].cursor, limit: 2 });
+        assert.deepEqual(newer.items.map((item) => item.id), ["n:9002", "n:9003"]);
         assert.equal(newer.hasMore, true);
+      } finally {
+        await app.query("rollback");
+      }
+    });
+
+    await test("feed: the main page balances companies and sources without losing older posts", async () => {
+      await app.query("begin");
+      try {
+        await app.query(`insert into public.news (id, source, cik, title, url, published_at)
+          overriding system value values
+          (9101, 'benzinga', 320193, 'One', 'https://example.org/diverse-9101', now() + interval '60 minutes'),
+          (9102, 'benzinga', 320193, 'Two', 'https://example.org/diverse-9102', now() + interval '59 minutes'),
+          (9103, 'benzinga', 320193, 'Three', 'https://example.org/diverse-9103', now() + interval '58 minutes'),
+          (9104, 'benzinga', 320193, 'Four', 'https://example.org/diverse-9104', now() + interval '57 minutes'),
+          (9105, 'benzinga', 320193, 'Five', 'https://example.org/diverse-9105', now() + interval '56 minutes'),
+          (9106, 'benzinga', 789019, 'Six', 'https://example.org/diverse-9106', now() + interval '55 minutes'),
+          (9107, 'prnewswire', 1652044, 'Seven', 'https://example.org/diverse-9107', now() + interval '54 minutes'),
+          (9108, 'businesswire', 1067983, 'Eight', 'https://example.org/diverse-9108', now() + interval '53 minutes'),
+          (9109, 'benzinga', 9000001, 'Nine', 'https://example.org/diverse-9109', now() + interval '52 minutes')`);
+
+        const first = await getFeed(app, { limit: 5 });
+        assert.deepEqual(first.items.map((item) => item.id), ["n:9101", "n:9102", "n:9106", "n:9107", "n:9108"]);
+        const roomy = await getFeed(app, { limit: 30 });
+        assert.equal(roomy.items.filter((item) => item.cik === 320193).length, 2, "a burst cannot fill otherwise unused places");
+        assert.equal(first.latestCursor, first.items[0].cursor);
+        assert.ok(first.next);
+        const seen = first.items.map((item) => item.id);
+        let next: string | null = first.next;
+        while (next) {
+          const page = await getFeed(app, { limit: 5, before: next });
+          seen.push(...page.items.map((item) => item.id));
+          next = page.next;
+        }
+        assert.equal(new Set(seen).size, seen.length);
+        for (let id = 9101; id <= 9109; id++) assert.ok(seen.includes(`n:${id}`), `missing ${id}`);
+        const one = await getFeed(app, { limit: 1 });
+        assert.equal(one.items[0].id, "n:9101");
+        assert.ok(one.next);
+        assert.equal((await getFeed(app, { limit: 1, before: one.next! })).items[0].id, "n:9102");
+        const company = await getFeed(app, { cik: 320193, limit: 5 });
+        assert.deepEqual(company.items.map((item) => item.id), ["n:9101", "n:9102", "n:9103", "n:9104", "n:9105"]);
+        await app.query(`update public.news set cik = 320193 where id = 9107`);
+        const sharedCompany = await getFeed(app, { limit: 5 });
+        assert.ok(sharedCompany.items.some((item) => item.id === "n:9107"), "another source is represented for the same company");
+        assert.equal(sharedCompany.items.filter((item) => item.cik === 320193).length, 2);
+        await app.query(`update public.news set published_at = now() - interval '100 days' where id not between 9101 and 9105`);
+        await app.query(`update public.filings set accepted_at = now() - interval '100 days'`);
+        const oneCompany = await getFeed(app, { limit: 5 });
+        assert.deepEqual(oneCompany.items.map((item) => item.id), ["n:9101", "n:9102", "n:9103", "n:9104", "n:9105"]);
       } finally {
         await app.query("rollback");
       }

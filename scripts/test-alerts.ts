@@ -603,7 +603,7 @@ async function main() {
            ('prnewswire', null, 'ZZZZ', 'Private Co', 'Private company news', 'https://www.prnewswire.com/news-releases/private-1.html', now())`,
         [AAPL],
       );
-      const all = await getFeed(db, { limit: 100 });
+      const all = await getFeed(db, { limit: 100, ciks: [AAPL, MSFT] });
       assert.ok(all.items.length >= 10);
       const times = all.items.map((i) => i.publishedAt);
       assert.deepEqual(times, [...times].sort().reverse());
@@ -612,7 +612,7 @@ async function main() {
       assert.deepEqual(press.items.map((i) => [i.kind, i.typeLabel, i.sourceName, i.canSummarize]), [["release", "Press release", "PR Newswire", false]]);
       const apple = await getFeed(db, { cik: AAPL, limit: 100 });
       assert.ok(apple.items.every((i) => i.ticker === "AAPL"));
-      // Page through three at a time: every item exactly once, in order.
+      // The diversified first page may promote older items; subsequent pages include the rest once.
       const seen: string[] = [];
       let cursor: string | undefined;
       for (let i = 0; i < 20; i++) {
@@ -621,7 +621,8 @@ async function main() {
         if (!page.next) break;
         cursor = page.next;
       }
-      assert.deepEqual(seen, all.items.map((i) => i.id));
+      assert.equal(new Set(seen).size, seen.length);
+      assert.deepEqual([...seen].sort(), all.items.map((i) => i.id).sort());
       // "Anything new since the post I am looking at?": exactly the items above it, newest first.
       const newer = await getFeed(db, { after: all.items[2].cursor, limit: 50 });
       assert.deepEqual(newer.items.map((i) => i.id), all.items.slice(0, 2).map((i) => i.id));

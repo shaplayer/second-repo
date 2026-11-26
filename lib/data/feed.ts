@@ -151,8 +151,9 @@ const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EX
   s.bullets as s_bullets`;
 
 /**
- * The first page includes the latest item from each source active in the past day, then fills with
- * the newest remaining items. Later pages continue chronologically, excluding promoted items.
+ * The unfiltered first page favors different companies and sources from the past day.
+ * When multiple companies have recent news, show at most two items per company on that page.
+ * Later pages continue chronologically, excluding items already shown on the first page.
  */
 export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   const limit = Math.min(Math.max(q.limit ?? 30, 1), 100);
@@ -231,22 +232,18 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
        where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id::text ${dir} limit ${n})`);
   }
   if (!halves.length) return { items: [], next: null, latestCursor: null, hasMore: false };
-  const diversify = !q.before && !q.after;
+  const diversify = !q.before && !q.after && !q.category && q.cik === undefined && q.ciks === undefined && !text;
   const candidates: string[] = [];
   if (diversify && filings) {
     candidates.push(`(select ${FILING_COLS}
       from public.filings f join public.companies c on c.cik = f.cik left join public.summaries s on s.accession = f.accession
-      where ${fWhere.join(" and ")} and f.accepted_at >= now() - interval '24 hours'
-      order by f.accepted_at desc, f.accession desc limit 1)`);
+      where ${fWhere.join(" and ")} and f.accepted_at >= now() - interval '24 hours')`);
   }
   if (diversify && releases) {
-    candidates.push(`(select best.* from public.news_sources src cross join lateral (
-      select ${RELEASE_COLS}
-      from public.news n join public.companies c on c.cik = ${releaseCompany}
+    candidates.push(`(select ${RELEASE_COLS}
+      from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = ${releaseCompany}
       left join public.summaries s on s.news_id = n.id
-      where ${nWhere.join(" and ")} and n.source = src.key and n.published_at >= now() - interval '24 hours'
-      order by n.published_at desc, n.id::text desc limit 1
-    ) best)`);
+      where ${nWhere.join(" and ")} and n.published_at >= now() - interval '24 hours')`);
   }
   const { rows } = await db.query<Row & { promoted: boolean }>(
     `with base as (
@@ -255,8 +252,31 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
     )
     select base.*, false as promoted from base
     ${candidates.length ? `union all
-      (select x.*, true as promoted from (${candidates.join(" union all ")}) x
-       order by x.at desc, (x.kind || ':' || x.ref) desc limit ${n})` : ""}`,
+      (with company_sources as (
+        select x.*, row_number() over (
+          partition by x.cik, x.source_key order by x.at desc, (x.kind || ':' || x.ref) desc
+        ) as company_source_rank
+        from (${candidates.join(" union all ")}) x
+      ), candidates as (
+        select company_sources.*, row_number() over (
+          partition by cik order by company_source_rank, at desc, (kind || ':' || ref) desc
+        ) as company_rank
+        from company_sources
+      ), ranked as (
+        select candidates.*, row_number() over (
+          partition by source_key order by (company_rank > 2), at desc, (kind || ':' || ref) desc
+        ) as source_rank
+        from candidates
+      )
+      select ranked.kind, ranked.ref, ranked.at, ranked.at_exact, ranked.cik, ranked.ticker, ranked.company,
+        ranked.listed, ranked.form, ranked.items, ranked.category, ranked.release_title, ranked.original_url,
+        ranked.source_key, ranked.source_name, ranked.can_summarize, ranked.s_kind, ranked.s_headline,
+        ranked.s_one, ranked.s_bullets, true as promoted
+      from ranked
+      where (company_rank <= 2 or (select count(distinct cik) from candidates) = 1)
+        and (ranked.kind, ranked.ref) <> (select kind, ref from base order by at desc, (kind || ':' || ref) desc limit 1)
+      order by source_rank, at desc, (kind || ':' || ref) desc
+      limit ${p(limit - 1)})` : ""}`,
     params,
   );
   const newestFirst = (a: FeedItem, b: FeedItem) => a.cursor === b.cursor ? 0 : a.cursor > b.cursor ? -1 : 1;
@@ -264,7 +284,7 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
     .sort((a, b) => dir === "asc" ? newestFirst(b, a) : newestFirst(a, b));
   const promoted = rows.filter((row) => row.promoted).map(toFeedItem).sort(newestFirst);
   const selected = new Map<string, FeedItem>();
-  for (const item of [...promoted, ...base]) {
+  for (const item of [...base.slice(0, 1), ...promoted, ...(!diversify || !promoted.length ? base : [])]) {
     if (selected.size === limit) break;
     selected.set(item.id, item);
   }
@@ -273,7 +293,7 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   const more = firstOmitted !== -1;
   // The first missing chronological item, not the oldest promoted item, determines the next page.
   const boundary = more ? base[firstOmitted - 1] : undefined;
-  const excluded = before?.excluded ?? promoted.filter((item) => boundary && item.cursor < boundary.cursor).map((item) => item.id);
+  const excluded = before?.excluded ?? items.filter((item) => boundary && item.cursor < boundary.cursor).map((item) => item.id);
   return {
     items,
     next: more && dir === "desc" && boundary
