@@ -876,13 +876,20 @@ async function parserTests() {
     const articles = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as unknown;
     const items = parseBenzingaNews(articles);
     assert.ok(items.length > 0);
-    assert.deepEqual(items[0].tickers, ["NVDA", "AMZN", "GOOGL", "GOOG", "MSFT"]);
-    assert.equal(items[0].publishedAt, "2026-11-24T18:17:57.000Z");
+    assert.deepEqual(items[0].tickers, ["INTC", "MSFT"]);
+    assert.equal(items[0].publishedAt, "2026-11-26T14:30:07.000Z");
     assert.ok(items[0].description.length > 0 && !items[0].description.includes("<p"));
     const example = (articles as Record<string, unknown>[])[2];
-    const arca = parseBenzingaNews([{ ...example, title: "Company announces a new partnership" }]);
+    const exampleArca = {
+      ...example, title: "Company announces a new partnership", stocks: [{ name: "XLK", exchange: "ARCA" }],
+    };
+    const arca = parseBenzingaNews([exampleArca]);
     assert.ok(arca[0].tickers.includes("XLK"), "ARCA tickers are accepted");
-    assert.ok(items.every((item) => !item.sourceItemId), "sample WIIM headlines describe price movements");
+    const quote = { ...exampleArca, url: "https://www.benzinga.com/quote/TEST" };
+    assert.equal(parseBenzingaNews([quote]).length, 1);
+    assert.deepEqual(parseBenzingaNews([{
+      ...quote, title: "Technology stocks are rising after the latest market news",
+    }]), [], "price-movement quote headlines are excluded");
     assert.ok(items.every((item) => item.usListed && item.url.startsWith("https://")));
     assert.deepEqual(parseBenzingaNews([]), []);
     assert.throws(() => parseBenzingaNews({ items: [] }), /not a news-item array/);
@@ -1421,7 +1428,10 @@ async function databaseTests(c: Client) {
     const created = new Date().toISOString();
     const stocks = [{ name: "NWBT", exchange: "NASDAQ" }, { name: "HGRD", exchange: "NYSE" }];
     const article = { ...sample[1], created, stocks };
-    const quote = { ...sample[0], created, stocks, title: "Company announces a new partnership", body: sample[1].body };
+    const quote = {
+      ...sample[0], created, stocks, title: "Company announces a new partnership",
+      body: sample[1].body, url: "https://www.benzinga.com/quote/TEST",
+    };
     const fixture = [article, quote, { ...quote, id: 999999999 }];
     const fetcher = fakeFetch(() => ({ body: JSON.stringify(fixture), headers: { "content-type": "application/json" } }));
     try {
@@ -1440,7 +1450,7 @@ async function databaseTests(c: Client) {
         `select id, body_text, url, source_item_id from public.news where source = 'benzinga'`,
       );
       assert.ok(initialRows.every((row) => row.body_text === null));
-      assert.equal(initialRows.filter((row) => row.url === sample[0].url).length, 2);
+      assert.equal(initialRows.filter((row) => row.url === quote.url).length, 2);
       assert.equal(await num(`select count(*) from public.news_companies where news_id = any($1::bigint[])`, [first.newItems]), 6);
       const secondary = await getFeed(c, { cik: 9000002, category: "press", limit: 100 });
       assert.equal(secondary.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).length, 3);
