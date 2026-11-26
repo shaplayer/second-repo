@@ -134,7 +134,6 @@ export async function streamSession(token: string, signal: AbortSignal, opts: St
           return;
         }
         const text = textOf(data);
-        console.log(`[benzinga-stream] received message: ${text}`);
         if (text === "pong") {
           awaitingPong = false;
           return;
@@ -195,7 +194,6 @@ export async function runBenzingaStream(db: Pool, signal: AbortSignal, opts: Str
             let article: unknown;
             try {
               article = parseBenzingaStreamMessage(text);
-              console.log(`[benzinga-stream] parsed article:`, article);
             } catch (e) {
               console.error(`[benzinga-stream] ${(e as Error).message}; event ignored`);
               return;

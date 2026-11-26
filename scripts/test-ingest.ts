@@ -880,12 +880,33 @@ async function parserTests() {
     assert.equal(items[0].publishedAt, "2026-11-24T18:17:57.000Z");
     assert.ok(items[0].description.length > 0 && !items[0].description.includes("<p"));
     const example = (articles as Record<string, unknown>[])[2];
-    const arca = parseBenzingaNews([{ ...example, title: "Company update" }]);
+    const arca = parseBenzingaNews([{ ...example, title: "Company announces a new partnership" }]);
     assert.ok(arca[0].tickers.includes("XLK"), "ARCA tickers are accepted");
     assert.ok(items.every((item) => !item.sourceItemId), "sample WIIM headlines describe price movements");
     assert.ok(items.every((item) => item.usListed && item.url.startsWith("https://")));
     assert.deepEqual(parseBenzingaNews([]), []);
     assert.throws(() => parseBenzingaNews({ items: [] }), /not a news-item array/);
+  });
+
+  await test("Benzinga news requires English headlines and article text", () => {
+    const articles = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as Record<string, unknown>[];
+    const english = {
+      ...articles[1],
+      title: "Company announces a new partnership",
+      body: "<p>The company announced a partnership to expand its business and provide more services to customers across the United States.</p>",
+      teaser: "",
+    };
+    const korean = "미국 정부는 새로운 계획을 발표하고 앞으로 더 많은 연구와 개발을 지원할 것이라고 설명했습니다.".repeat(2);
+    const spanish = "La empresa anunció una nueva asociación para ampliar sus servicios y ofrecer más oportunidades a sus clientes en todo el país.";
+    assert.equal(parseBenzingaNews([english]).length, 1);
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: korean }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: korean }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: spanish }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: spanish }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: "News" }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: "" }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: "Short article" }]), []);
+    assert.equal(parseBenzingaNews([{ ...english, body: "", teaser: english.body }]).length, 1);
   });
 
   await test("Benzinga API client uses the configured GET query and does not expose the token in errors", async () => {
@@ -904,6 +925,10 @@ async function parserTests() {
       token: "test-benzinga-token",
     });
     assert.equal(good.calls[0].headers.accept, "application/json");
+
+    const korean = "미국 정부는 새로운 계획을 발표하고 앞으로 더 많은 연구와 개발을 지원할 것이라고 설명했습니다.".repeat(2);
+    const foreign = fakeFetch(() => ({ body: JSON.stringify([{ ...JSON.parse(fixture)[1], title: korean, body: korean }]) }));
+    assert.deepEqual(await fetchBenzingaNews({ fetch: foreign.fn, token: "test-benzinga-token" }), []);
 
     await assert.rejects(fetchBenzingaNews({ fetch: good.fn, token: "" }), /BENZINGA_API_TOKEN is required/);
     assert.equal(good.calls.length, 1, "missing token fails before network access");
@@ -1396,7 +1421,7 @@ async function databaseTests(c: Client) {
     const created = new Date().toISOString();
     const stocks = [{ name: "NWBT", exchange: "NASDAQ" }, { name: "HGRD", exchange: "NYSE" }];
     const article = { ...sample[1], created, stocks };
-    const quote = { ...sample[0], created, stocks, title: "Company announces a new partnership" };
+    const quote = { ...sample[0], created, stocks, title: "Company announces a new partnership", body: sample[1].body };
     const fixture = [article, quote, { ...quote, id: 999999999 }];
     const fetcher = fakeFetch(() => ({ body: JSON.stringify(fixture), headers: { "content-type": "application/json" } }));
     try {

@@ -1,6 +1,7 @@
 /**
  * Benzinga News API adapter. The token is sent only in the API request and never included in logs.
  */
+import { franc } from "franc";
 import { normalizeTicker } from "../sec/companies";
 import { htmlToText } from "../sec/text";
 import { inTransaction } from "../alerts/subscriptions";
@@ -51,6 +52,14 @@ function articleTickers(stocks: unknown): string[] {
 export type BenzingaItem = PressItem & { tickers: string[]; sourceItemId: string | null; articleId: string | null };
 const MARKET_MOVE = /\b(?:stocks?|shares?|trading|sectors?)\b.{0,80}\b(?:rises?|rose|rising|falls?|fell|falling|jumps?|jumped|jumping|surges?|surged|surging|plunges?|plunged|plunging|sliding|slides?|slid|drops?|dropped|dropping|lower|higher|gains?|gained|gaining|losses?|soars?|soared|soaring|sinks?|sank|sinking|outperforms?|underperforms?)\b|\b(?:rises?|rose|rising|falls?|fell|falling|jumps?|jumped|surges?|surged|plunges?|plunged|slides?|slid|drops?|dropped|sinks?|sank|outperforms?|underperforms?)\b.{0,80}\b(?:stocks?|shares?|trading|sectors?)\b/i;
 
+function articleLanguage(title: string, body: string): "english" | "other" | "unknown" {
+  const titleLanguage = franc(htmlToText(title), { minLength: 20 });
+  const bodyLanguage = franc(body, { minLength: 80 });
+  if (titleLanguage === "und" || bodyLanguage === "und") return "unknown";
+  if (titleLanguage !== "eng" || bodyLanguage !== "eng") return "other";
+  return "english";
+}
+
 /** Converts Benzinga's article array into the normalized shape shared by news sources. */
 export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
   if (!Array.isArray(payload)) throw new Error("Benzinga API response is not a news-item array");
@@ -80,6 +89,12 @@ export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
     const content = typeof value.body === "string" && value.body.trim()
       ? value.body
       : typeof value.teaser === "string" ? value.teaser : "";
+    const description = htmlToText(content);
+    const language = articleLanguage(title, description);
+    if (language !== "english") {
+      console.warn(`[benzinga] article skipped: ${title} - language ${language}`);
+      continue;
+    }
     seen.add(key);
     if (id) seenIds.add(id);
     out.push({
@@ -92,7 +107,7 @@ export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
       articleId: id,
       usListed: true,
       company: null,
-      description: htmlToText(content),
+      description,
     });
   }
   return out;
@@ -116,7 +131,6 @@ export async function fetchBenzingaNews(opts: BenzingaOptions = {}): Promise<Ben
   if (until > now()) throw new Error("Benzinga API recently refused the request; backing off before retrying");
 
   const url = new URL(BENZINGA_API_URL);
-  console.log(`Fetching Benzinga news from URL: ${url}`);
   url.searchParams.set("pageSize", String(BENZINGA_PAGE_SIZE));
   url.searchParams.set("displayOutput", "full");
   url.searchParams.set("topic_group_by", "or");

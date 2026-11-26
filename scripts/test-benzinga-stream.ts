@@ -11,17 +11,17 @@ import { finish, test } from "./testing";
 import { withTestDatabase } from "./testing-db";
 
 const article = {
-  id: 8273616, title: "Companies announce partnership",
+  id: 8273616, title: "Company announces a new partnership",
   url: "https://www.benzinga.com/news/example-partnership",
-  created: new Date().toISOString(), body: "Licensed text",
+  created: new Date().toISOString(), body: "The company announced a partnership to expand its business and provide more services to customers across the United States.",
   stocks: [{ name: "AAPL", exchange: "NASDAQ" }, { name: "MSFT", exchange: "NASDAQ" }],
 };
 const event = (action: string, content: unknown = article) =>
   JSON.stringify({ id: "message-1", kind: "news", data: { action, id: article.id, content } });
 const streamArticle = {
-  id: 63615018, title: "Companies announce a new agreement",
+  id: 63615018, title: "Company announces a new partnership",
   url: "https://www.benzinga.com/news/stream-agreement",
-  created_at: new Date(Date.now() - 60_000).toISOString(), body: "<p>First &amp; second paragraphs.</p><p>More details.</p>",
+  created_at: new Date(Date.now() - 60_000).toISOString(), body: "<p>The company announced a partnership to expand its business and provide more services to customers across the United States.</p><p>More details &amp; information.</p>",
   securities: [{ symbol: "AAPL", exchange: "NASDAQ", primary: true }, { symbol: "MSFT", exchange: "NASDAQ" }],
 };
 const versionedEvent = (action: string, content: unknown = streamArticle) =>
@@ -55,7 +55,10 @@ async function main() {
     assert.equal(items[0].url, streamArticle.url);
     assert.equal(items[0].publishedAt, streamArticle.created_at);
     assert.deepEqual(items[0].tickers, ["AAPL", "MSFT"]);
-    assert.equal(items[0].description, "First & second paragraphs.\nMore details.");
+    assert.equal(items[0].description, "The company announced a partnership to expand its business and provide more services to customers across the United States.\nMore details & information.");
+    const korean = "미국 정부는 새로운 계획을 발표하고 앞으로 더 많은 연구와 개발을 지원할 것이라고 설명했습니다.".repeat(2);
+    const nonEnglish = parseBenzingaStreamMessage(versionedEvent("Created", { ...streamArticle, body: korean }));
+    assert.deepEqual(parseBenzingaNews([nonEnglish]), []);
     assert.equal(parseBenzingaStreamMessage(versionedEvent("Updated")), null);
     assert.equal(parseBenzingaStreamMessage(versionedEvent("Deleted")), null);
     assert.throws(() => parseBenzingaStreamMessage(versionedEvent("Created", { ...streamArticle, id: 0 })), /invalid created/);
@@ -208,7 +211,7 @@ async function main() {
           `select count(*) as n from public.news where url = $1`, [licensedArticle.url],
         )).rows[0].n) === 1);
         const stored = (await client.query(`select body_text from public.news where url = $1`, [licensedArticle.url])).rows[0];
-        assert.equal(stored.body_text, "First & second paragraphs.\nMore details.");
+        assert.equal(stored.body_text, "The company announced a partnership to expand its business and provide more services to customers across the United States.\nMore details & information.");
         await client.query(`update public.news_sources set can_store_body = false where key = 'benzinga'`);
       });
 

@@ -356,6 +356,11 @@ accepts both the documented news envelope and `News/v1` events. If body storage 
 enabled in `news_sources`, new articles store the body as plain text; previously stored articles are
 not backfilled when the permission changes.
 
+Both ingestion paths also use local language detection on the headline and body (or teaser).
+Only items detected as English in both are stored; missing or short text and undetermined results
+are skipped with a log message. Detection can make mistakes, particularly on short headlines, and
+does not change previously stored articles or body-storage permissions.
+
 Staff can change existing sources under **Staff → News sources**. Confirm the licence permits each
 use and record what was agreed, by whom and when in the terms note. The SEC source stays on.
 Switching a source off stops future ingestion; it does not remove existing articles or summaries.
