@@ -876,9 +876,11 @@ async function parserTests() {
     const articles = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as unknown;
     const items = parseBenzingaNews(articles);
     assert.ok(items.length > 0);
-    assert.deepEqual(items[0].tickers, ["INTC", "MSFT"]);
-    assert.equal(items[0].publishedAt, "2026-11-26T14:30:07.000Z");
-    assert.ok(items[0].description.length > 0 && !items[0].description.includes("<p"));
+    const intel = items.find((item) => item.url === (articles as Record<string, unknown>[])[1].url);
+    assert.ok(intel);
+    assert.deepEqual(intel.tickers, ["INTC", "MSFT"]);
+    assert.equal(intel.publishedAt, "2026-11-26T14:30:07.000Z");
+    assert.ok(intel.description.length > 0 && !intel.description.includes("<p"));
     const example = (articles as Record<string, unknown>[])[2];
     const exampleArca = {
       ...example, title: "Company announces a new partnership", stocks: [{ name: "XLK", exchange: "ARCA" }],
@@ -914,6 +916,19 @@ async function parserTests() {
     assert.deepEqual(parseBenzingaNews([{ ...english, body: "" }]), []);
     assert.deepEqual(parseBenzingaNews([{ ...english, body: "Short article" }]), []);
     assert.equal(parseBenzingaNews([{ ...english, body: "", teaser: english.body }]).length, 1);
+    const shortInterest = {
+      ...english,
+      title: "AbbVie Short Interest Rises, Remains Below August Peak",
+      body: "<p>Short sellers added to their positions in the latest reporting period. The number of shares sold short remains below the August peak, according to the latest report.</p>",
+    };
+    assert.equal(parseBenzingaNews([shortInterest]).length, 1, "English headline mistaken for Scots is accepted");
+    assert.deepEqual(parseBenzingaNews([{ ...shortInterest, body: spanish }]), [], "the body must still be English");
+    assert.deepEqual(parseBenzingaNews([{ ...shortInterest, body: "Short article" }]), [], "the body must still be long enough");
+    for (const index of [0, 5, 7, 10]) {
+      assert.equal(parseBenzingaNews([articles[index]]).length, 1, `English fixture ${index} is accepted`);
+    }
+    const french = "L’entreprise annonce un nouveau partenariat pour développer ses activités aux États-Unis";
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: french }]), []);
   });
 
   await test("Benzinga API client uses the configured GET query and does not expose the token in errors", async () => {

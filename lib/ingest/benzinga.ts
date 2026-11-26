@@ -1,7 +1,7 @@
 /**
  * Benzinga News API adapter. The token is sent only in the API request and never included in logs.
  */
-import { franc } from "franc";
+import { franc, francAll } from "franc";
 import { normalizeTicker } from "../sec/companies";
 import { htmlToText } from "../sec/text";
 import { inTransaction } from "../alerts/subscriptions";
@@ -53,10 +53,12 @@ export type BenzingaItem = PressItem & { tickers: string[]; sourceItemId: string
 const MARKET_MOVE = /\b(?:stocks?|shares?|trading|sectors?)\b.{0,80}\b(?:rises?|rose|rising|falls?|fell|falling|jumps?|jumped|jumping|surges?|surged|surging|plunges?|plunged|plunging|sliding|slides?|slid|drops?|dropped|dropping|lower|higher|gains?|gained|gaining|losses?|soars?|soared|soaring|sinks?|sank|sinking|outperforms?|underperforms?)\b|\b(?:rises?|rose|rising|falls?|fell|falling|jumps?|jumped|surges?|surged|plunges?|plunged|slides?|slid|drops?|dropped|sinks?|sank|outperforms?|underperforms?)\b.{0,80}\b(?:stocks?|shares?|trading|sectors?)\b/i;
 
 function articleLanguage(title: string, body: string): "english" | "other" | "unknown" {
-  const titleLanguage = franc(htmlToText(title), { minLength: 20 });
+  const titleLanguages = francAll(htmlToText(title), { minLength: 20 });
   const bodyLanguage = franc(body, { minLength: 80 });
-  if (titleLanguage === "und" || bodyLanguage === "und") return "unknown";
-  if (titleLanguage !== "eng" || bodyLanguage !== "eng") return "other";
+  if (titleLanguages[0][0] === "und" || bodyLanguage === "und") return "unknown";
+  // Headlines are short enough that English can score close to the winning language without ranking first.
+  const englishTitle = (titleLanguages.find(([language]) => language === "eng")?.[1] ?? 0) >= 0.85;
+  if (!englishTitle || bodyLanguage !== "eng") return "other";
   return "english";
 }
 

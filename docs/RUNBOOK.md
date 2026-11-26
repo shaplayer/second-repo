@@ -361,9 +361,10 @@ enabled in `news_sources`, new articles store the body as plain text; previously
 not backfilled when the permission changes.
 
 Both ingestion paths also use local language detection on the headline and body (or teaser).
-Only items detected as English in both are stored; missing or short text and undetermined results
-are skipped with a log message. Detection can make mistakes, particularly on short headlines, and
-does not change previously stored articles or body-storage permissions.
+The body must be detected as English. Headlines are also checked for English, allowing a close
+English match even when another language scores higher. Missing or short text and undetermined
+results are skipped with a log message. Detection can make mistakes, particularly on short
+headlines, and does not change previously stored articles or body-storage permissions.
 
 Staff can change existing sources under **Staff → News sources**. Confirm the licence permits each
 use and record what was agreed, by whom and when in the terms note. The SEC source stays on.
