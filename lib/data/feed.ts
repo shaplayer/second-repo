@@ -57,7 +57,7 @@ export type FeedQuery = {
   ciks?: number[];
   /** Free text: a ticker, part of a company name, or part of a headline. */
   text?: string;
-  /** Only items older than this one (paging: pass the last item's cursor). */
+  /** Only items older than this page (pass the previous page's `next`). */
   before?: string;
   /** Only items newer than this one (the "3 new posts" check: pass the first item's cursor). */
   after?: string;
@@ -98,12 +98,16 @@ type Row = {
 /** A position in the feed: "<time to the microsecond>|<kind>|<ref>". */
 export const cursorOf = (it: Pick<FeedItem, "cursor">) => it.cursor;
 
-function parseCursor(cursor: string | undefined): { at: string; key: string } | null {
+function parseCursor(cursor: string | undefined): { at: string; key: string; excluded: string[] } | null {
   if (!cursor) return null;
-  const [at, kind, ...rest] = cursor.split("|");
+  const [position, exclusions, ...extra] = cursor.split("~");
+  if (extra.length) return null;
+  const excluded = exclusions ? exclusions.split(",") : [];
+  if (excluded.length > 100 || excluded.some((id) => !/^(?:f:\d{10}-\d{2}-\d{6}|n:\d{1,18})$/.test(id))) return null;
+  const [at, kind, ...rest] = position.split("|");
   const ref = rest.join("|");
   if (!at || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?Z$/.test(at) || (kind !== "f" && kind !== "n") || !ref) return null;
-  return { at, key: `${kind}:${ref}` };
+  return { at, key: `${kind}:${ref}`, excluded };
 }
 
 export function toFeedItem(r: Row): FeedItem {
@@ -147,8 +151,8 @@ const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EX
   s.bullets as s_bullets`;
 
 /**
- * One page of the feed. Each half (filings, releases) is cut to the page size on its own index before
- * the two are merged, so the query stays fast however large the tables grow.
+ * The first page includes the latest item from each source active in the past day, then fills with
+ * the newest remaining items. Later pages continue chronologically, excluding promoted items.
  */
 export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   const limit = Math.min(Math.max(q.limit ?? 30, 1), 100);
@@ -199,6 +203,11 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
     // each half is cut to the page size, or the item the cursor names would use up one of the places).
     fWhere.push(`f.accepted_at <= ${at}::timestamptz and (f.accepted_at, 'f:' || f.accession) < (${at}::timestamptz, ${key})`);
     nWhere.push(`n.published_at <= ${at}::timestamptz and (n.published_at, 'n:' || n.id::text) < (${at}::timestamptz, ${key})`);
+    if (before.excluded.length) {
+      const excluded = p(before.excluded);
+      fWhere.push(`('f:' || f.accession) <> all(${excluded}::text[])`);
+      nWhere.push(`('n:' || n.id::text) <> all(${excluded}::text[])`);
+    }
   }
   if (after) {
     const at = p(after.at);
@@ -222,17 +231,53 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
        where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id::text ${dir} limit ${n})`);
   }
   if (!halves.length) return { items: [], next: null, latestCursor: null, hasMore: false };
-  const { rows } = await db.query<Row>(
-    `select x.* from (${halves.join(" union all ")}) x
-      order by x.at ${dir}, (x.kind || ':' || x.ref) ${dir} limit ${n}`,
+  const diversify = !q.before && !q.after;
+  const candidates: string[] = [];
+  if (diversify && filings) {
+    candidates.push(`(select ${FILING_COLS}
+      from public.filings f join public.companies c on c.cik = f.cik left join public.summaries s on s.accession = f.accession
+      where ${fWhere.join(" and ")} and f.accepted_at >= now() - interval '24 hours'
+      order by f.accepted_at desc, f.accession desc limit 1)`);
+  }
+  if (diversify && releases) {
+    candidates.push(`(select best.* from public.news_sources src cross join lateral (
+      select ${RELEASE_COLS}
+      from public.news n join public.companies c on c.cik = ${releaseCompany}
+      left join public.summaries s on s.news_id = n.id
+      where ${nWhere.join(" and ")} and n.source = src.key and n.published_at >= now() - interval '24 hours'
+      order by n.published_at desc, n.id::text desc limit 1
+    ) best)`);
+  }
+  const { rows } = await db.query<Row & { promoted: boolean }>(
+    `with base as (
+      select x.* from (${halves.join(" union all ")}) x
+      order by x.at ${dir}, (x.kind || ':' || x.ref) ${dir} limit ${n}
+    )
+    select base.*, false as promoted from base
+    ${candidates.length ? `union all
+      (select x.*, true as promoted from (${candidates.join(" union all ")}) x
+       order by x.at desc, (x.kind || ':' || x.ref) desc limit ${n})` : ""}`,
     params,
   );
-  const more = rows.length > limit;
-  const items = rows.slice(0, limit).map(toFeedItem);
-  if (dir === "asc") items.reverse();
+  const newestFirst = (a: FeedItem, b: FeedItem) => a.cursor === b.cursor ? 0 : a.cursor > b.cursor ? -1 : 1;
+  const base = rows.filter((row) => !row.promoted).map(toFeedItem)
+    .sort((a, b) => dir === "asc" ? newestFirst(b, a) : newestFirst(a, b));
+  const promoted = rows.filter((row) => row.promoted).map(toFeedItem).sort(newestFirst);
+  const selected = new Map<string, FeedItem>();
+  for (const item of [...promoted, ...base]) {
+    if (selected.size === limit) break;
+    selected.set(item.id, item);
+  }
+  const items = [...selected.values()].sort(newestFirst);
+  const firstOmitted = base.findIndex((item) => !selected.has(item.id));
+  const more = firstOmitted !== -1;
+  // The first missing chronological item, not the oldest promoted item, determines the next page.
+  const boundary = more ? base[firstOmitted - 1] : undefined;
+  const excluded = before?.excluded ?? promoted.filter((item) => boundary && item.cursor < boundary.cursor).map((item) => item.id);
   return {
     items,
-    next: more && dir === "desc" && items.length ? cursorOf(items[items.length - 1]) : null,
+    next: more && dir === "desc" && boundary
+      ? `${cursorOf(boundary)}${excluded.length ? `~${excluded.join(",")}` : ""}` : null,
     latestCursor: items[0]?.cursor ?? null,
     hasMore: more,
   };

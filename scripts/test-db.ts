@@ -630,6 +630,46 @@ async function main() {
       }
     });
 
+    await test("feed: the first page represents fresh sources without skipping or repeating older items", async () => {
+      await app.query("begin");
+      try {
+        await app.query(`update public.filings set accepted_at = now() - interval '7 minutes', title = 'Diversity test'
+          where accession = '0000320193-26-000018'`);
+        await app.query(`insert into public.news (id, source, cik, title, url, published_at)
+          overriding system value values
+          (9001, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9001', now() - interval '1 minute'),
+          (9002, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9002', now() - interval '2 minutes'),
+          (9003, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9003', now() - interval '3 minutes'),
+          (9004, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9004', now() - interval '4 minutes'),
+          (9005, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9005', now() - interval '5 minutes'),
+          (9006, 'businesswire', 320193, 'Diversity test', 'https://example.org/diversity-9006', now() - interval '8 minutes'),
+          (9007, 'benzinga', 320193, 'Diversity test', 'https://example.org/diversity-9007', now() - interval '9 minutes'),
+          (9008, 'globenewswire', 320193, 'Diversity test', 'https://example.org/diversity-9008', now() - interval '25 hours')`);
+
+        const first = await getFeed(app, { cik: 320193, text: "Diversity test", limit: 4 });
+        assert.deepEqual(first.items.map((item) => item.id), ["n:9001", "f:0000320193-26-000018", "n:9006", "n:9007"]);
+        assert.equal(first.latestCursor, first.items[0].cursor);
+        assert.ok(first.next);
+        const seen = first.items.map((item) => item.id);
+        let next: string | null = first.next;
+        while (next) {
+          const page = await getFeed(app, { cik: 320193, text: "Diversity test", limit: 4, before: next });
+          seen.push(...page.items.map((item) => item.id));
+          next = page.next;
+        }
+        assert.equal(new Set(seen).size, seen.length);
+        for (const id of ["n:9002", "n:9003", "n:9004", "n:9005", "n:9008"]) assert.ok(seen.includes(id));
+
+        const filtered = await getFeed(app, { category: "press", text: "Diversity test", limit: 3 });
+        assert.deepEqual(filtered.items.map((item) => item.id), ["n:9001", "n:9006", "n:9007"]);
+        const newer = await getFeed(app, { cik: 320193, text: "Diversity test", after: first.items[1].cursor, limit: 2 });
+        assert.deepEqual(newer.items.map((item) => item.id), ["n:9005", "n:9004"]);
+        assert.equal(newer.hasMore, true);
+      } finally {
+        await app.query("rollback");
+      }
+    });
+
     await test("subscriptions: the right people, the right status", async () => {
       const m = await subs();
       const status = (k: string) => m.get(k)?.status ?? "(missing)";
