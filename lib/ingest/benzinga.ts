@@ -92,11 +92,12 @@ export function parseBenzingaNews(payload: unknown): BenzingaItem[] {
     const description = htmlToText(content);
     const language = articleLanguage(title, description);
     if (language !== "english") {
-      console.warn(`[benzinga] article skipped: ${title} - language ${language}`);
+      console.warn(`[benzinga] article skipped: ${title} ${description} Reason - language ${language}`);
       continue;
     }
     seen.add(key);
     if (id) seenIds.add(id);
+    console.log(`[benzinga] article accepted: ${title}`);
     out.push({
       title,
       url,
