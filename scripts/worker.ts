@@ -8,7 +8,7 @@
  *                write waiting summaries; send waiting alert emails
  *   on demand    wake the summary loop when a reader queues a new summary
  *   every 5 s    gather the SEC record and health check of companies someone just opened or followed
- *   every 10 min read the newswire feeds that are switched on
+ *   every 10 min read enabled newswire feeds and the Benzinga API
  *   6:00 PM New York   send the daily summaries
  *   2:30 AM New York   refresh every followed company's record and health check; reload the company list
  *   hourly       tidy up (expired sign-in links, old counters), retry failed team notifications
@@ -31,6 +31,7 @@ import { growthRulesEnabled, teamInbox } from "../lib/config";
 import { loadCompanies } from "../lib/db/companies";
 import { connectionConfig } from "../lib/db/connect";
 import { emailProvider } from "../lib/email";
+import { pollBenzingaNews } from "../lib/ingest/benzinga";
 import { classifyFilings } from "../lib/ingest/classify";
 import { nextCompaniesToRefresh, refreshCompanyHealth, refreshCompanyProfile } from "../lib/ingest/company";
 import { processFilingDetails } from "../lib/ingest/detail";
@@ -190,7 +191,9 @@ export async function runWorker({ db, sec, sending, summaries, once, onceDaily, 
     }),
     () => every("details", () => 2_000, () => processFilingDetails(db, sec, { limit: 10 })),
     () => every("press", () => 600_000, async () => {
+      console.log(`Polling press feeds at ${new Date().toISOString()}`);
       await pollPressFeeds(db, pressFetch ? { fetch: pressFetch } : {});
+      await pollBenzingaNews(db, pressFetch ? { fetch: pressFetch } : {});
       await matchNewItems(db);
     }),
     () => every("match", () => 2_000, () => matchNewItems(db)),

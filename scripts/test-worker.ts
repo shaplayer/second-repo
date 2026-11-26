@@ -25,6 +25,7 @@ async function main() {
   process.env.COMPANY_POSTAL_ADDRESS = "BigStocks Test LLC, 1 Test Way, Testville, TS 12345";
   process.env.NEXT_PUBLIC_SITE_URL = "https://bigstocks.test";
   process.env.EMAIL_PROVIDER = "console";
+  process.env.BENZINGA_API_TOKEN = "test-benzinga-token";
   console.log("worker test");
 
   const ran = await withTestDatabase("worker", async (client, url) => {
@@ -43,7 +44,12 @@ async function main() {
       },
       stats: () => ({ requests: asked.length, retries: 0, pausedUntil: null }),
     };
-    const pressFetch = (async () => new Response(fixture("press-rss.xml"), { status: 200, headers: { "content-type": "application/rss+xml" } })) as typeof fetch;
+    const pressFetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      return url.hostname === "api.benzinga.com"
+        ? new Response("[]", { status: 200, headers: { "content-type": "application/json" } })
+        : new Response(fixture("press-rss.xml"), { status: 200, headers: { "content-type": "application/rss+xml" } });
+    }) as typeof fetch;
     const mail: EmailMessage[] = [];
     const log = console.log;
     const errors: string[] = [];

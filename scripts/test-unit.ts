@@ -1,12 +1,16 @@
 /** Tests for the pure rules: no network, no database. Run with `npm test`. */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { InfiniteQueryObserver, QueryClient, QueryObserver } from "@tanstack/react-query";
+import { InfiniteQueryObserver, QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { GET as findTestRecipients, POST as changeTestAlert } from "../app/api/admin/test-alerts/route";
 import { POST as createApiKey } from "../app/api/admin/api-keys/route";
 import { POST as createLegacyApiKey } from "../app/api/admin/pick-api-keys/route";
 import { POST as savePick } from "../app/api/admin/pick/route";
+import { POST as saveNewsSource } from "../app/api/admin/news-sources/route";
 import { GET as loadAdminData } from "../app/api/admin/data/[section]/route";
+import { NewsSourceForm } from "../components/admin/NewsSourceForm";
 import { adminOptions, adminKey, AdminRequestError, recipientOptions } from "../lib/admin-query";
 import {
   categoriesFromAppPrefs,
@@ -21,9 +25,10 @@ import {
   type Candidate,
 } from "../lib/backfill/mapping";
 import type { FeedItem } from "../lib/data/feed";
+import { parseNewsSourceUpdate } from "../lib/data/news-sources";
 import { connectionConfig } from "../lib/db/connect";
 import { groupInsiderTrades, insiderGroupText } from "../lib/feed-groups";
-import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
+import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, refreshDiversifiedFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { readMigrations } from "../lib/db/migrate";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
@@ -54,7 +59,7 @@ async function main() {
     const savedDb = process.env.DATABASE_URL;
     delete process.env.DATABASE_URL;
     try {
-      for (const section of ["session", "counts", "config", "jobs", "inquiries", "list-size", "picks", "scheduled-picks", "test-alerts"]) {
+      for (const section of ["session", "counts", "config", "jobs", "inquiries", "list-size", "picks", "scheduled-picks", "test-alerts", "news-sources"]) {
         const response = await loadAdminData(new Request(`http://localhost:3000/api/admin/data/${section}`), {
           params: Promise.resolve({ section }),
         });
@@ -143,10 +148,40 @@ async function main() {
       assert.equal((await savePick(new Request("http://localhost:3000/api/admin/pick", {
         method: "POST", headers: { origin: "https://other.example" },
       }))).status, 403);
+      assert.equal((await saveNewsSource(new Request("http://localhost:3000/api/admin/news-sources", { method: "POST" }))).status, 403);
+      assert.equal((await saveNewsSource(new Request("http://localhost:3000/api/admin/news-sources", {
+        method: "POST", headers: { origin: "https://other.example" },
+      }))).status, 403);
     } finally {
       if (savedDb === undefined) delete process.env.DATABASE_URL;
       else process.env.DATABASE_URL = savedDb;
     }
+  });
+
+  await test("news source settings require valid flags, a terms note, and keep SEC on", () => {
+    const original = { enabled: false, can_store_body: false, can_summarize: false, terms_note: null };
+    const settings = { ...original, enabled: true, terms_note: "  Agreement checked  " };
+    assert.equal(parseNewsSourceUpdate({ key: "benzinga", settings, original }).settings.terms_note, "Agreement checked");
+    assert.throws(() => parseNewsSourceUpdate({ key: "sec", settings, original }), /SEC/);
+    assert.throws(() => parseNewsSourceUpdate({ key: "benzinga", settings: { ...settings, terms_note: " " }, original }), /terms note/);
+    assert.throws(() => parseNewsSourceUpdate({ key: "benzinga", settings: { ...settings, enabled: "true" }, original }), /Invalid/);
+    assert.throws(() => parseNewsSourceUpdate({ key: "INVALID", settings, original }), /Invalid/);
+  });
+
+  await test("news source forms keep editable fields with their own save action", () => {
+    const source = { key: "benzinga", name: "Benzinga", enabled: true, can_store_body: false, can_summarize: false, terms_note: "Terms checked" };
+    const markup = renderToStaticMarkup(createElement(QueryClientProvider, { client: new QueryClient() },
+      createElement("div", null,
+        createElement(NewsSourceForm, { source }),
+        createElement(NewsSourceForm, { source: { ...source, key: "sec", name: "SEC.gov" } }),
+      ),
+    ));
+    const form = markup.match(/<form\b[\s\S]*?<\/form>/g);
+    assert.equal(form?.length, 1);
+    assert.equal((form[0].match(/<input\b/g) ?? []).length, 3);
+    assert.match(form[0], /<textarea\b/);
+    assert.match(form[0], /aria-label="Save Benzinga"/);
+    assert.match(markup, /Always on/);
   });
 
   await test("SEC User-Agent: missing, placeholder and incomplete values are refused", () => {
@@ -410,6 +445,36 @@ async function main() {
       const merged = prependFeed(displayed, updates);
       assert.equal(merged.pages[0].next, feedPost(2).cursor);
       assert.deepEqual(merged.pages[0].items.map((item) => item.id), ["n:3", "n:2"]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      client.clear();
+    }
+  });
+
+  await test("live feed: refreshing the diversified feed resets pagination and advances the live cursor", async () => {
+    const client = new QueryClient();
+    const originalFetch = globalThis.fetch;
+    const old: FeedData = { pages: [{ items: [feedPost(3)], next: "old" }, { items: [feedPost(1)], next: null }], pageParams: [null, "old"] };
+    const pending: LiveFeed = { items: [feedPost(4)], latestCursor: feedPost(4).cursor, next: null };
+    client.setQueryData(feedKey(feedFilters), old);
+    client.setQueryData(liveFeedKey(feedFilters), pending);
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input), "http://localhost");
+      assert.equal(url.searchParams.has("after"), false);
+      assert.equal(url.searchParams.has("before"), false);
+      return Response.json({ items: [feedPost(5), feedPost(2)], next: "new", latestCursor: feedPost(5).cursor, hasMore: true });
+    };
+    try {
+      await refreshDiversifiedFeed(client, feedFilters);
+      const data = client.getQueryData<FeedData>(feedKey(feedFilters))!;
+      assert.deepEqual(data.pages.map((page) => page.items.map((item) => item.id)), [["n:5", "n:2"]]);
+      assert.deepEqual(data.pageParams, [null]);
+      assert.equal(data.pages[0].next, "new");
+      assert.deepEqual(client.getQueryData<LiveFeed>(liveFeedKey(feedFilters)), { items: [], latestCursor: feedPost(5).cursor, next: "new" });
+
+      globalThis.fetch = async () => Response.json({}, { status: 503 });
+      await assert.rejects(refreshDiversifiedFeed(client, feedFilters), /not available/);
+      assert.equal(client.getQueryData(feedKey(feedFilters)), data);
     } finally {
       globalThis.fetch = originalFetch;
       client.clear();

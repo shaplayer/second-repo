@@ -29,11 +29,7 @@ echo "== 5/6 Building"
 npm run build
 
 echo "== 6/6 Restarting"
-if pm2 describe bigstocks-site >/dev/null 2>&1; then
-  pm2 reload ecosystem.config.cjs --update-env
-else
-  pm2 start ecosystem.config.cjs
-fi
+pm2 startOrReload ecosystem.config.cjs --update-env
 pm2 save
 
 sleep 5

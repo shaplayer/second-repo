@@ -10,7 +10,7 @@ type Props = { params: Promise<{ id: string }> };
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const item = await getFeedItem(db(), `n:${(await params).id}`).catch(() => null);
   if (!item) return { title: "Press release not found" };
-  return { title: `${item.ticker ? `$${item.ticker}: ` : ""}${item.headline}`, description: `Press release from ${item.company}, via ${item.sourceName}.` };
+  return { title: `${item.ticker ? `$${item.ticker}: ` : ""}${item.headline}`, description: `${item.typeLabel} about ${item.company}, via ${item.sourceName}.` };
 }
 
 export default async function ReleasePage({ params }: Props) {

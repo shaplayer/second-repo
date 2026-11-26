@@ -7,6 +7,7 @@ const links = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/picks", label: "Picks" },
   { href: "/admin/worker", label: "Worker & test email" },
+  { href: "/admin/news-sources", label: "News sources" },
   { href: "/admin/api-keys", label: "API keys" },
 ];
 

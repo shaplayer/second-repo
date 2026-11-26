@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FeedItem } from "@/lib/data/feed";
 import { groupInsiderTrades, insiderGroupText } from "@/lib/feed-groups";
-import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, mergeFeedItems, prependFeed, summaryKey, summaryOptions, type FeedData, type FeedFilters, type LiveFeed, type SummaryView } from "@/lib/feed-query";
+import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, mergeFeedItems, prependFeed, refreshDiversifiedFeed, summaryKey, summaryOptions, type FeedData, type FeedFilters, type LiveFeed, type SummaryView } from "@/lib/feed-query";
 import { CATEGORY_LABEL, type Category } from "@/lib/plain";
 import { TypeBadge } from "@/components/ui/Badges";
 import { BellIcon, PauseIcon, PlayIcon } from "@/components/ui/Icons";
@@ -106,6 +106,8 @@ export function FeedList(props: FeedListProps) {
   const [text, setText] = useState("");
   const [debouncedText, setDebouncedText] = useState("");
   const [paused, setPaused] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [following, setFollowing] = useState<Set<number>>(new Set(props.following ?? []));
@@ -119,13 +121,14 @@ export function FeedList(props: FeedListProps) {
   const filters = useMemo<FeedFilters>(() => ({
     cik, category, mine: signedIn && mine, text: debouncedText, limit: pageSize, accountScope,
   }), [cik, category, signedIn, mine, debouncedText, pageSize, accountScope]);
+  const diversified = cik === undefined && category === "all" && !filters.mine && !debouncedText;
   const initial = category === "all" && !filters.mine && !debouncedText && props.initialAvailable !== false
     ? { items: props.initial, next: props.next } : undefined;
   const feed = useInfiniteQuery(feedOptions(filters, initial));
   const items = useMemo(() => mergeFeedItems(...(feed.data?.pages.map((page) => page.items) ?? [])), [feed.data]);
   const updates = useQuery({
     ...liveFeedOptions(client, filters),
-    enabled: live && !paused && feed.data !== undefined && normalizedText === debouncedText,
+    enabled: live && !paused && !refreshing && feed.data !== undefined && normalizedText === debouncedText,
   });
   const fresh = updates.data?.items ?? [];
   const checkedAt = updates.dataUpdatedAt ? new Date(updates.dataUpdatedAt).toISOString() : null;
@@ -145,7 +148,7 @@ export function FeedList(props: FeedListProps) {
     client.removeQueries({
       predicate: (query) => {
         const scope = query.queryKey[1];
-        return (query.queryKey[0] === "feed" || query.queryKey[0] === "feed-live")
+        return (query.queryKey[0] === "feed" || query.queryKey[0] === "feed-live" || query.queryKey[0] === "feed-refresh")
           && typeof scope === "object" && scope !== null && "accountScope" in scope && scope.accountScope !== accountScope;
       },
     });
@@ -169,14 +172,27 @@ export function FeedList(props: FeedListProps) {
   }, [client, open, summary.data]);
 
   async function showFresh() {
+    setRefreshError(false);
+    setRefreshing(true);
     await Promise.all([
       client.cancelQueries({ queryKey: feedKey(filters), exact: true }),
       client.cancelQueries({ queryKey: liveFeedKey(filters), exact: true }),
     ]);
     const pending = client.getQueryData<LiveFeed>(liveFeedKey(filters));
-    if (!pending?.items.length) return;
-    client.setQueryData<FeedData>(feedKey(filters), (data) => data && prependFeed(data, pending));
-    client.setQueryData<LiveFeed>(liveFeedKey(filters), { ...pending, items: [] });
+    try {
+      if (!pending?.items.length) return;
+      if (diversified) {
+        await refreshDiversifiedFeed(client, filters);
+      } else {
+        client.setQueryData<FeedData>(feedKey(filters), (data) => data && prependFeed(data, pending));
+        client.setQueryData<LiveFeed>(liveFeedKey(filters), { ...pending, items: [] });
+      }
+    } catch (error) {
+      console.error("[feed] could not refresh the latest posts", error);
+      setRefreshError(true);
+    } finally {
+      setRefreshing(false);
+    }
   }
 
   function retryFeed() {
@@ -337,11 +353,18 @@ export function FeedList(props: FeedListProps) {
           <button type="button" onClick={retryFeed} disabled={feed.isFetching || updates.isFetching} className="btn btn-soft">Try again</button>
         </div>
       )}
+      {refreshError && (
+        <p role="status" className="m-0 border-t border-line-soft bg-amber-bg px-4 py-3 text-sm text-amber">
+          The latest posts couldn&apos;t load. Please try again.
+        </p>
+      )}
 
       {fresh.length > 0 && (
-        <button type="button" onClick={showFresh}
+        <button type="button" onClick={showFresh} disabled={refreshing}
           className="h-11 w-full border-0 border-t border-line-soft bg-[#eef8f2] text-sm font-bold text-good">
-          ↑ {fresh.length} new {fresh.length === 1 ? "post" : "posts"}, show {fresh.length === 1 ? "it" : "them"}
+          {refreshing ? "Loading latest posts…" : diversified
+            ? `↑ ${fresh.length} new ${fresh.length === 1 ? "post" : "posts"}, refresh feed`
+            : `↑ ${fresh.length} new ${fresh.length === 1 ? "post" : "posts"}, show ${fresh.length === 1 ? "it" : "them"}`}
         </button>
       )}
 

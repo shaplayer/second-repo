@@ -4,6 +4,7 @@ import { listTestAlerts } from "../alerts/test-alerts";
 import { postalAddress, smsEnabled } from "../config";
 import { emailProvider } from "../email";
 import { listPicks, listScheduledPicks } from "./picks";
+import { listNewsSources } from "./news-sources";
 
 export const adminLoaders = {
   counts: async (pool: Pool) => (await pool.query<AdminData["counts"]>(`
@@ -37,4 +38,5 @@ export const adminLoaders = {
   picks: (pool: Pool) => listPicks(pool, { limit: 8 }),
   "scheduled-picks": listScheduledPicks,
   "test-alerts": listTestAlerts,
+  "news-sources": listNewsSources,
 } satisfies { [K in Exclude<keyof AdminData, "session">]: (pool: Pool) => Promise<AdminData[K]> };

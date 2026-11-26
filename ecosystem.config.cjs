@@ -26,5 +26,14 @@ module.exports = {
       max_memory_restart: "700M",
       exp_backoff_restart_delay: 2000,
     },
+    {
+      name: "bigstocks-benzinga-worker",
+      script: "node_modules/tsx/dist/cli.mjs",
+      args: "scripts/benzinga-worker.ts",
+      env: { NODE_ENV: "production" },
+      kill_timeout: 30000,
+      max_memory_restart: "700M",
+      exp_backoff_restart_delay: 2000,
+    },
   ],
 };

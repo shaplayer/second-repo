@@ -161,21 +161,22 @@ export async function sendQueuedAlerts(db: Db, opts: SendOptions = {}): Promise<
   }
   const ready = claimed.filter((e) => e.status === "active" && !e.suppressed);
 
-  // Load each item once, however many people it goes to.
+  const itemKey = (e: Claimed) => `${e.item_type}:${e.item_ref}${e.item_type === "news" ? `:${e.cik ?? ""}` : ""}`;
+  // News may name several companies; keep each subscriber's company in the email.
   const items = new Map<string, FeedItem | StockPick | null>();
   for (const e of ready) {
-    const key = `${e.item_type}:${e.item_ref}`;
+    const key = itemKey(e);
     if (items.has(key)) continue;
     items.set(
       key,
       e.item_type === "pick" ? await getPick(db, e.item_ref)
-        : await getFeedItem(db, `${e.item_type === "filing" ? "f" : "n"}:${e.item_ref}`),
+        : await getFeedItem(db, `${e.item_type === "filing" ? "f" : "n"}:${e.item_ref}`, e.cik === null ? undefined : Number(e.cik)),
     );
   }
 
   const present: Claimed[] = [];
   for (const e of ready) {
-    if (items.get(`${e.item_type}:${e.item_ref}`)) {
+    if (items.get(itemKey(e))) {
       present.push(e);
       continue;
     }
@@ -202,7 +203,7 @@ export async function sendQueuedAlerts(db: Db, opts: SendOptions = {}): Promise<
   for (const [key, events] of bursts) {
     const first = events[0];
     const feed = events
-      .map((e) => items.get(`${e.item_type}:${e.item_ref}`) as FeedItem)
+      .map((e) => items.get(itemKey(e)) as FeedItem)
       .sort((a, b) => (a.publishedAt < b.publishedAt ? 1 : a.publishedAt > b.publishedAt ? -1 : 0));
     const reason = `You're getting this because you asked for alerts on ${feed[0].ticker ? `$${feed[0].ticker}` : feed[0].company}.`;
     const message = toMessage(first.address, insiderBurstEmail({ items: feed, footer: footerFor(first, address, reason) }));
@@ -225,8 +226,8 @@ export async function sendQueuedAlerts(db: Db, opts: SendOptions = {}): Promise<
   }
 
   for (const [key, events] of groups) {
-    const item = items.get(key)!;
     const messages = events.map((e) => {
+      const item = items.get(itemKey(e))!;
       if (e.item_type === "pick") {
         const reason = e.cik === null ? "You're getting this because you asked for the free BigStocks pick." : "You're getting this because you follow this company on BigStocks.";
         return toMessage(e.address, pickEmail({ pick: item as StockPick, footer: footerFor(e, address, reason) }));
@@ -308,7 +309,7 @@ export async function sendDigests(db: Db, opts: SendOptions = {}): Promise<SendR
       if (!ready.length) return;
       const feed: FeedItem[] = [];
       for (const r of ready.slice(0, 40)) {
-        const it = await getFeedItem(c, `${r.item_type === "filing" ? "f" : "n"}:${r.item_ref}`);
+        const it = await getFeedItem(c, `${r.item_type === "filing" ? "f" : "n"}:${r.item_ref}`, r.cik === null ? undefined : Number(r.cik));
         if (it) feed.push(it);
       }
       if (!feed.length) {

@@ -336,6 +336,41 @@ Each line is explained in the file. What you need to have ready:
 | `COMPANY_POSTAL_ADDRESS` | Your business postal address. Alert emails are held back until it is set |
 | `ANTHROPIC_API_KEY` | console.anthropic.com. Without it the site works but writes no summaries |
 | `INQUIRY_NOTIFY_TO` | Where sponsor inquiries should be emailed |
+| `BENZINGA_API_TOKEN` | Benzinga API account. Required while the Benzinga source is enabled |
+
+The existing worker checks the latest 20 Benzinga items every 10 minutes. A separate
+`bigstocks-benzinga-worker` also streams new items using the same token; run only one stream worker
+per Benzinga API key. Both paths use the same database writer. The stream requests replay on
+reconnection, but replay is limited to 100 cached messages and the REST poll is limited to 20 items,
+so a long outage can leave gaps. Monitor `pm2 logs bigstocks-benzinga-worker` and investigate
+disconnects or a growing ingestion delay. Updates and removals from the stream leave existing
+articles unchanged and visible; previously sent alerts cannot be recalled.
+Existing non-quote articles acquire their Benzinga IDs when they are next seen with the same URL.
+The live feed checks for new posts every ten seconds using publication time, so a delayed replay
+older than the latest visible post may require a page refresh to appear.
+The unfiltered main feed favors different companies and sources from the past 24 hours. When more
+than one company has recent news, its first page shows at most two items per company; the remaining
+items are still available through earlier-post pagination. If only one company has recent news,
+the feed fills normally. Refreshing the feed for new posts restarts earlier-post pagination.
+The workers associate each item with
+all recognized US companies; quote-page items use Benzinga's item ID to distinguish repeated links.
+Price-movement and trading-advice headlines are filtered out. Confirm the licence permits headline
+and link use before enabling the source; body storage and summaries remain disabled. The stream
+accepts both the documented news envelope and `News/v1` events. If body storage is licensed and
+enabled in `news_sources`, new articles store the body as plain text; previously stored articles are
+not backfilled when the permission changes.
+
+Both ingestion paths also use local language detection on the headline and body (or teaser).
+The body must be detected as English. Headlines are also checked for English, allowing a close
+English match even when another language scores higher. Missing or short text and undetermined
+results are skipped with a log message. Detection can make mistakes, particularly on short
+headlines, and does not change previously stored articles or body-storage permissions.
+
+Staff can change existing sources under **Staff → News sources**. Confirm the licence permits each
+use and record what was agreed, by whom and when in the terms note. The SEC source stays on.
+Switching a source off stops future ingestion; it does not remove existing articles or summaries.
+Changing text or summary permissions does not remove previously stored text or summaries, and work
+already in progress may still finish. Review existing material separately if a licence is withdrawn.
 
 Keep `ALERTS_SENDING=off` in `.env` for now (add that line).
 
@@ -346,7 +381,7 @@ bash scripts/deploy.sh
 ```
 
 It installs the packages, runs the checks, applies any new database changes, builds, starts the site
-and the worker under PM2, and asks the site whether it is healthy. You will run this same command
+and both workers under PM2, and asks the site whether it is healthy. You will run this same command
 every time the code changes.
 
 Look at it without changing anything for visitors. From your own computer:

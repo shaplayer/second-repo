@@ -89,6 +89,16 @@ export function prependFeed(data: FeedData, fresh: LiveFeed): FeedData {
   return { ...data, pages };
 }
 
+export async function refreshDiversifiedFeed(client: QueryClient, filters: FeedFilters): Promise<void> {
+  const page = await client.fetchQuery({
+    queryKey: ["feed-refresh", filters],
+    queryFn: ({ signal }) => fetchFeed(filters, {}, signal),
+    staleTime: 0,
+  });
+  client.setQueryData<FeedData>(feedKey(filters), { pages: [page], pageParams: [null] });
+  client.setQueryData<LiveFeed>(liveFeedKey(filters), { items: [], latestCursor: page.latestCursor, next: page.next });
+}
+
 export async function fetchNewPosts(filters: FeedFilters, displayed: FeedData, previous: LiveFeed | undefined, signal: AbortSignal): Promise<LiveFeed> {
   let latestCursor = previous?.latestCursor ?? displayed.pages[0]?.items[0]?.cursor ?? null;
   let items = previous?.items ?? [];
