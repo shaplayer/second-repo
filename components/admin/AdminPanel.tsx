@@ -50,10 +50,22 @@ export default function AdminPanel({ children }: { children: React.ReactNode }) 
       <HeaderView user={Boolean(session.data) && !denied} />
       <main id="main" className="flex-1">
         <div className="mx-auto flex w-full max-w-[900px] flex-col gap-5 px-4 pb-14 pt-8 md:px-8">
-          {session.isError ? <p role="alert" className="text-sm text-bad">
-            {denied ? "Staff access is required." : "Could not check staff access. Please try again."}
-            {!denied && <button className="btn btn-soft ml-3" onClick={() => void session.refetch()}>Try again</button>}
-          </p> : <AdminContent pathname={pathname}>{children}</AdminContent>}
+          {denied ? (
+            <p role="alert" className="text-sm text-bad">Staff access is required.</p>
+          ) : session.data ? (
+            <>
+              {session.isError && <p role="alert" className="text-sm text-bad">
+                Could not refresh staff access. The panel is still available.
+                <button className="btn btn-soft ml-3" onClick={() => void session.refetch()}>Try again</button>
+              </p>}
+              <AdminContent pathname={pathname}>{children}</AdminContent>
+            </>
+          ) : (
+            <p role="alert" className="text-sm text-bad">
+              Could not check staff access. Please try again.
+              <button className="btn btn-soft ml-3" onClick={() => void session.refetch()}>Try again</button>
+            </p>
+          )}
         </div>
       </main>
       <Footer />

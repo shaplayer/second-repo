@@ -21,6 +21,10 @@ export async function POST(req: Request) {
     const name = await authenticateApiKey(db(), req.headers.get("authorization"));
     if (!name) return json({ ok: false, error: "Invalid API key." }, 401);
     const b = await readJson(req);
+    const sponsorFields = ["payer", "amount", "form", "startDate"];
+    if (b.sponsored === false && sponsorFields.some((field) => Object.prototype.hasOwnProperty.call(b, field))) {
+      return json({ ok: false, error: "Only sponsored picks can include sponsor details or a start date." }, 400);
+    }
     if (b.confirm !== true || typeof b.ticker !== "string" || typeof b.title !== "string"
       || typeof b.sponsored !== "boolean" || typeof b.ownsShares !== "boolean"
       || (b.why !== undefined && typeof b.why !== "string")

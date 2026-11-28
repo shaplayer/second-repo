@@ -138,6 +138,9 @@ async function main() {
         assert.equal((await createPickApi(request(input, { origin: "https://other.example" }))).status, 403);
         assert.equal((await createPickApi(request({ ...input, confirm: false }))).status, 400);
         assert.equal((await createPickApi(request({ ...input, sponsored: true, payer: "Sponsor", amount: "", form: "cash" }))).status, 400);
+        for (const field of ["payer", "amount", "form", "startDate"] as const) {
+          assert.equal((await createPickApi(request({ ...input, [field]: "Unexpected" }))).status, 400, field);
+        }
         const sponsoredInput = { ...input, sponsored: true, payer: "Sponsor", amount: "$1,000", form: "cash" };
         assert.equal((await createPickApi(request(sponsoredInput))).status, 400);
         assert.equal((await createPickApi(request({ ...sponsoredInput, startDate: "2026-02-30" }))).status, 400);
@@ -682,6 +685,9 @@ async function main() {
       }
       const input = { subject: "Delivery check", body: "This is a test.", scheduledAt: new Date(Date.now() + 60_000).toISOString(), recipients: ids, confirm: true };
       await assert.rejects(scheduleTestAlert(db, user.id, { ...input, confirm: false }), /Confirm/);
+      await assert.rejects(scheduleTestAlert(db, user.id, {
+        ...input, scheduledAt: "2099-02-30T12:00:00Z",
+      }), /Choose a time in the future/);
       const id = await scheduleTestAlert(db, user.id, input);
       const mail = fakeEmail();
       assert.equal(await sendTestAlerts(db, { provider: mail.provider }), 0);

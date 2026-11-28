@@ -99,6 +99,20 @@ export async function refreshDiversifiedFeed(client: QueryClient, filters: FeedF
   client.setQueryData<LiveFeed>(liveFeedKey(filters), { items: [], latestCursor: page.latestCursor, next: page.next });
 }
 
+export async function resetPersonalizedFeedCaches(client: QueryClient): Promise<void> {
+  const predicate = (query: { queryKey: readonly unknown[] }) => {
+    const [key, filters] = query.queryKey;
+    return (key === "feed" || key === "feed-live" || key === "feed-refresh")
+      && typeof filters === "object"
+      && filters !== null
+      && "mine" in filters
+      && filters.mine === true;
+  };
+  await client.cancelQueries({ predicate });
+  client.removeQueries({ type: "inactive", predicate });
+  await client.resetQueries({ type: "active", predicate });
+}
+
 export async function fetchNewPosts(filters: FeedFilters, displayed: FeedData, previous: LiveFeed | undefined, signal: AbortSignal): Promise<LiveFeed> {
   let latestCursor = previous?.latestCursor ?? displayed.pages[0]?.items[0]?.cursor ?? null;
   let items = previous?.items ?? [];

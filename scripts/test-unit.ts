@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { InfiniteQueryObserver, QueryClient, QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { Client } from "pg";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { GET as findTestRecipients, POST as changeTestAlert } from "../app/api/admin/test-alerts/route";
@@ -26,9 +27,10 @@ import {
 } from "../lib/backfill/mapping";
 import type { FeedItem } from "../lib/data/feed";
 import { parseNewsSourceUpdate } from "../lib/data/news-sources";
+import { scheduleTestAlert } from "../lib/alerts/test-alerts";
 import { connectionConfig } from "../lib/db/connect";
 import { groupInsiderTrades, insiderGroupText } from "../lib/feed-groups";
-import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, refreshDiversifiedFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
+import { resetPersonalizedFeedCaches, feedKey, feedOptions, liveFeedKey, liveFeedOptions, prependFeed, refreshDiversifiedFeed, summaryOptions, type FeedData, type FeedFilters, type LiveFeed } from "../lib/feed-query";
 import { describeTarget, parseArgs } from "../lib/db/target";
 import { readMigrations } from "../lib/db/migrate";
 import { normalizeTicker, parseTickerFile, tvSymbol } from "../lib/sec/companies";
@@ -395,6 +397,50 @@ async function main() {
       globalThis.fetch = originalFetch;
       client.clear();
     }
+  });
+
+  await test("follow changes reset personalized feed caches without clearing general feeds", async () => {
+    const client = new QueryClient();
+    const mine = { ...feedFilters, mine: true, accountScope: "account-a" };
+    const feedData: FeedData = { pages: [{ items: [feedPost(1)], next: null }], pageParams: [null] };
+    const liveData: LiveFeed = { items: [feedPost(2)], latestCursor: feedPost(2).cursor, next: null };
+    const refreshedFeed: FeedData = { pages: [{ items: [feedPost(3)], next: null }], pageParams: [null] };
+    const refreshedLive: LiveFeed = { items: [feedPost(4)], latestCursor: feedPost(4).cursor, next: null };
+    client.setQueryData(feedKey(mine), feedData);
+    client.setQueryData(liveFeedKey(mine), liveData);
+    client.setQueryData(["feed-refresh", mine], feedData.pages[0]);
+    client.setQueryData(feedKey(feedFilters), feedData);
+    const feedObserver = new QueryObserver(client, {
+      queryKey: feedKey(mine), queryFn: async () => refreshedFeed, staleTime: Infinity, retry: false,
+    });
+    const liveObserver = new QueryObserver(client, {
+      queryKey: liveFeedKey(mine), queryFn: async () => refreshedLive, staleTime: Infinity, retry: false,
+    });
+    const unsubscribeFeed = feedObserver.subscribe(() => {});
+    const unsubscribeLive = liveObserver.subscribe(() => {});
+
+    try {
+      await resetPersonalizedFeedCaches(client);
+
+      assert.deepEqual(client.getQueryData(feedKey(mine)), refreshedFeed);
+      assert.deepEqual(client.getQueryData(liveFeedKey(mine)), refreshedLive);
+      assert.equal(client.getQueryData(["feed-refresh", mine]), undefined);
+      assert.equal(client.getQueryData(feedKey(feedFilters)), feedData, "non-personalized feed data is retained");
+    } finally {
+      unsubscribeFeed();
+      unsubscribeLive();
+      client.clear();
+    }
+  });
+
+  await test("scheduled alerts reject calendar-invalid timestamps that JavaScript normalizes", async () => {
+    await assert.rejects(scheduleTestAlert(new Client(), "user-id", {
+      subject: "Delivery check",
+      body: "This is a test.",
+      scheduledAt: "2099-02-30T12:00:00Z",
+      recipients: ["1"],
+      confirm: true,
+    }), /Choose a time in the future/);
   });
 
   await test("live feed: a 65-post burst catches up immediately without refreshing older pages or losing buffered posts", async () => {

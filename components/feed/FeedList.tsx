@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FeedItem } from "@/lib/data/feed";
 import { groupInsiderTrades, insiderGroupText } from "@/lib/feed-groups";
-import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, mergeFeedItems, prependFeed, refreshDiversifiedFeed, summaryKey, summaryOptions, type FeedData, type FeedFilters, type LiveFeed, type SummaryView } from "@/lib/feed-query";
+import { feedKey, feedOptions, liveFeedKey, liveFeedOptions, mergeFeedItems, prependFeed, refreshDiversifiedFeed, resetPersonalizedFeedCaches, summaryKey, summaryOptions, type FeedData, type FeedFilters, type LiveFeed, type SummaryView } from "@/lib/feed-query";
 import { CATEGORY_LABEL, type Category } from "@/lib/plain";
 import { TypeBadge } from "@/components/ui/Badges";
 import { BellIcon, PauseIcon, PlayIcon } from "@/components/ui/Icons";
@@ -210,14 +210,7 @@ export function FeedList(props: FeedListProps) {
     setFollowing((f) => new Set(f).add(item.cik!));
     const res = await fetch("/api/follow", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cik: item.cik, alerts: true, source: "feed" }) });
     if (!res.ok) setFollowing((f) => { const n = new Set(f); n.delete(item.cik!); return n; });
-    else client.removeQueries({
-      type: "inactive",
-      predicate: (query) => {
-        const scope = query.queryKey[1];
-        return (query.queryKey[0] === "feed" || query.queryKey[0] === "feed-live")
-          && typeof scope === "object" && scope !== null && "mine" in scope && scope.mine === true;
-      },
-    });
+    else await resetPersonalizedFeedCaches(client);
   }
 
   const offeredFilters = props.filters ?? [];

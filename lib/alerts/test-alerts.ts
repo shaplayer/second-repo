@@ -31,11 +31,15 @@ export async function scheduleTestAlert(db: Db, userId: string, input: {
   if (!subject || subject.length > 150 || /[\r\n]/.test(subject)) throw new TestAlertInputError("Enter a subject of up to 150 characters on one line.");
   if (!body || body.length > 2000) throw new TestAlertInputError("Enter a message of up to 2,000 characters.");
   if (/\b(buy|sell)\b/i.test(`${subject} ${body}`)) throw new TestAlertInputError("Please avoid trading instructions in the subject and message.");
-  if (typeof input.scheduledAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(input.scheduledAt)) {
+  const scheduledAt = input.scheduledAt;
+  if (typeof scheduledAt !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(scheduledAt)) {
     throw new TestAlertInputError("Choose a valid date and time.");
   }
-  const date = new Date(input.scheduledAt);
-  if (!Number.isFinite(date.getTime()) || date.getTime() <= Date.now()) throw new TestAlertInputError("Choose a time in the future.");
+  const date = new Date(scheduledAt);
+  const canonicalTimestamp = scheduledAt.replace(/(?:\.000)?Z$/, ".000Z");
+  if (!Number.isFinite(date.getTime()) || date.toISOString() !== canonicalTimestamp || date.getTime() <= Date.now()) {
+    throw new TestAlertInputError("Choose a time in the future.");
+  }
   if (!Array.isArray(input.recipients) || !input.recipients.length ||
       !input.recipients.every((id) => typeof id === "string" && /^[1-9]\d{0,17}$/.test(id)) ||
       new Set(input.recipients).size !== input.recipients.length) {
