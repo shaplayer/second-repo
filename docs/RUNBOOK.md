@@ -9,6 +9,80 @@ Run the dry run first, read the output, then run it for real. Nothing is changed
 
 The plan these steps belong to is `docs/MIGRATION_PLAN.md`.
 
+## Pick API
+
+After applying migrations, staff can create an API key in **Staff → API keys** (`/admin/api-keys`). Copy it immediately;
+it is shown only once. Keep it on the application's server, never in browser code. Anyone with the
+key can publish picks and cause emails to be sent. The same key infrastructure can be used by future
+API endpoints, subject to their authorization rules. To revoke a key, a trusted database administrator
+can delete its row from `public.api_keys` by application name. This does not delete picks. Existing keys
+continue to work after the API-key table is renamed. A compatibility view keeps the previous
+application code working during deployment; it has no public access.
+
+Send `Authorization: Bearer <key>` to `GET /api/v1/picks` to list picks, or to
+`POST /api/v1/picks` with JSON.
+
+**Non-sponsored pick:**
+
+```json
+{
+  "ticker": "AAPL",
+  "title": "Apple is on our radar for review",
+  "why": "Replace this with your researched explanation.",
+  "sponsored": false,
+  "ownsShares": false,
+  "confirm": true
+}
+```
+
+**Sponsored pick:**
+
+```json
+{
+  "ticker": "MSFT",
+  "title": "The reason for this sponsored pick",
+  "why": "Optional explanation",
+  "sourceUrl": "https://example.org/source",
+  "sponsored": true,
+  "payer": "Example Sponsor",
+  "amount": "$1,000",
+  "form": "cash",
+  "startDate": "2026-11-23",
+  "ownsShares": false,
+  "ownershipNote": "Optional ownership disclosure",
+  "confirm": true
+}
+```
+
+For an immediate send, use today's date in New York; the example date becomes stale.
+
+`ticker`, `title`, `sponsored`, `ownsShares`, and `confirm` are required; `confirm` must be `true`.
+The ticker must be in the SEC company list, and the trimmed title must be 10–200 characters.
+`why`, `sourceUrl` (HTTPS), and `ownershipNote` are optional. For a sponsored pick, `payer`, `amount`,
+and `form` are required non-empty strings, and `startDate` is a required calendar date (`YYYY-MM-DD`);
+for a non-sponsored pick, set `sponsored` to `false` and
+omit them. Other database columns, such as the ID, company name, author, and posting time, are not
+accepted as editable fields by this API.
+
+A successful POST saves the pick and returns its `startsAt` timestamp (alongside `id` and `ticker`).
+Sponsored picks become public and eligible for email at midnight **America/New_York** on `startDate`
+(including daylight-saving changes); today's date or an earlier date publishes immediately.
+Free picks still publish immediately. The worker queues email only after the start time, using that
+time rather than the creation time for the stale-alert cutoff (24 hours). Picks whose start date is
+more than 24 hours ago are published but not emailed. Staff and the authenticated GET API include
+scheduled picks; public lists hide them until their start time. Disclosures on the page and in the
+email include the start date. Existing picks retain their original publication dates after migration.
+Apply the new migration before deploying this code.
+
+Staff can edit any scheduled pick from **Staff → Scheduled picks** before it becomes public. Changes
+to the start date change when it appears and when email becomes eligible. Choosing a start date that
+has already begun, or changing the pick to non-sponsored, publishes it immediately. Once public,
+it cannot be edited. Staff must confirm before saving. API clients can list scheduled picks but cannot
+edit them through the pick API.
+
+Publishing a pick cannot be undone. There is no automatic retry deduplication: if a response
+is lost, check the list before trying again. Picks cannot be deleted.
+
 **Use a new folder.** The data site that is live today runs from its own folder on the Droplet. Leave
 that folder alone until the switch-over. Put the new code beside it:
 
@@ -262,6 +336,41 @@ Each line is explained in the file. What you need to have ready:
 | `COMPANY_POSTAL_ADDRESS` | Your business postal address. Alert emails are held back until it is set |
 | `ANTHROPIC_API_KEY` | console.anthropic.com. Without it the site works but writes no summaries |
 | `INQUIRY_NOTIFY_TO` | Where sponsor inquiries should be emailed |
+| `BENZINGA_API_TOKEN` | Benzinga API account. Required while the Benzinga source is enabled |
+
+The existing worker checks the latest 20 Benzinga items every 10 minutes. A separate
+`bigstocks-benzinga-worker` also streams new items using the same token; run only one stream worker
+per Benzinga API key. Both paths use the same database writer. The stream requests replay on
+reconnection, but replay is limited to 100 cached messages and the REST poll is limited to 20 items,
+so a long outage can leave gaps. Monitor `pm2 logs bigstocks-benzinga-worker` and investigate
+disconnects or a growing ingestion delay. Updates and removals from the stream leave existing
+articles unchanged and visible; previously sent alerts cannot be recalled.
+Existing non-quote articles acquire their Benzinga IDs when they are next seen with the same URL.
+The live feed checks for new posts every ten seconds using publication time, so a delayed replay
+older than the latest visible post may require a page refresh to appear.
+The unfiltered main feed favors different companies and sources from the past 24 hours. When more
+than one company has recent news, its first page shows at most two items per company; the remaining
+items are still available through earlier-post pagination. If only one company has recent news,
+the feed fills normally. Refreshing the feed for new posts restarts earlier-post pagination.
+The workers associate each item with
+all recognized US companies; quote-page items use Benzinga's item ID to distinguish repeated links.
+Price-movement and trading-advice headlines are filtered out. Confirm the licence permits headline
+and link use before enabling the source; body storage and summaries remain disabled. The stream
+accepts both the documented news envelope and `News/v1` events. If body storage is licensed and
+enabled in `news_sources`, new articles store the body as plain text; previously stored articles are
+not backfilled when the permission changes.
+
+Both ingestion paths also use local language detection on the headline and body (or teaser).
+The body must be detected as English. Headlines are also checked for English, allowing a close
+English match even when another language scores higher. Missing or short text and undetermined
+results are skipped with a log message. Detection can make mistakes, particularly on short
+headlines, and does not change previously stored articles or body-storage permissions.
+
+Staff can change existing sources under **Staff → News sources**. Confirm the licence permits each
+use and record what was agreed, by whom and when in the terms note. The SEC source stays on.
+Switching a source off stops future ingestion; it does not remove existing articles or summaries.
+Changing text or summary permissions does not remove previously stored text or summaries, and work
+already in progress may still finish. Review existing material separately if a licence is withdrawn.
 
 Keep `ALERTS_SENDING=off` in `.env` for now (add that line).
 
@@ -272,7 +381,7 @@ bash scripts/deploy.sh
 ```
 
 It installs the packages, runs the checks, applies any new database changes, builds, starts the site
-and the worker under PM2, and asks the site whether it is healthy. You will run this same command
+and both workers under PM2, and asks the site whether it is healthy. You will run this same command
 every time the code changes.
 
 Look at it without changing anything for visitors. From your own computer:
@@ -296,12 +405,44 @@ live feed on the homepage fills with filings.
 npm run admin:grant -- you@yourcompany.com
 ```
 
-Sign in on the site with that address (an emailed link), then open `/admin`. That page shows whether
-the worker is healthy, lets you post picks, and lists sponsor inquiries.
+Sign in on the site with that address (an emailed link), then open `/admin`. The overview shows
+counts, warnings and sponsor inquiries. Use **Picks** (`/admin/picks`) to post or edit picks,
+**Worker & test email** (`/admin/worker`) to check the worker and test emails, and **API keys**
+(`/admin/api-keys`) to create a key.
+
+The staff panel renders in the browser, not on the server. TanStack Query reads staff-only,
+uncached backend endpoints every 30 seconds, including while the tab is in the background.
+Data stays fresh in the browser cache for 15 seconds and unused entries are kept for one minute.
+Mounting a section, returning to the tab or reconnecting refreshes stale data, without repeating
+freshly prefetched requests. Saving a pick or test email refreshes affected data immediately.
+Admin routes use full-page, layout-matched skeletons while
+initial data loads, rather than visible loading messages or partially rendered forms. Route requests
+start in parallel, and each section keeps its own error boundary. Initial failures can be retried
+with **Try again**, while failed background refreshes
+keep the last loaded data visible with a warning.
+Browser suspension, a lost connection or an unavailable backend can delay updates; errors are
+shown rather than claiming the last loaded data is fresh. API keys are still shown only once
+after creation and are never polled or cached.
+
+#### Schedule a test email
+
+On **Worker & test email**, under **Schedule a test email**, search for and select individual active
+subscribers to the free pick list, review the suggested subject and message, and choose a future time
+in the time zone shown by your browser. Confirm that real emails will be sent, then schedule the test.
+It is labelled as a test and does not publish a pick. The recent-tests list shows each recipient's
+result. Cancel remaining emails there if needed; an email already being sent cannot be recalled.
+
+The worker must be running with `ALERTS_SENDING=on`. With `off`, tests stay waiting until sending is
+turned on; they are not sent as an exception to the switch. The web app and worker need the same real,
+configured `EMAIL_PROVIDER` (for example Resend, with its verified sender and API key) and
+`COMPANY_POSTAL_ADDRESS`. The `console` provider only prints and cannot send these tests. The worker
+rechecks consent and suppression before sending. A provider's acceptance is shown as sent, not proof
+of inbox delivery. Retries use a stable idempotency key, but providers such as SMTP that ignore it can
+send a duplicate after an uncertain failure. Check recipient results and worker errors before retrying.
 
 ### B4. Let it run beside the old site for two days
 
-Leave `ALERTS_SENDING=off`. Compare what the new feed shows with the old sites. On `/admin` every
+Leave `ALERTS_SENDING=off`. Compare what the new feed shows with the old sites. On `/admin/worker` every
 worker line should say "Working". Run the rehearsal copy (A5) during this time.
 
 ### B5. Fill in the legal pages

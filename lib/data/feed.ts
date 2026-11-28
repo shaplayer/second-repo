@@ -57,7 +57,7 @@ export type FeedQuery = {
   ciks?: number[];
   /** Free text: a ticker, part of a company name, or part of a headline. */
   text?: string;
-  /** Only items older than this one (paging: pass the last item's cursor). */
+  /** Only items older than this page (pass the previous page's `next`). */
   before?: string;
   /** Only items newer than this one (the "3 new posts" check: pass the first item's cursor). */
   after?: string;
@@ -65,6 +65,11 @@ export type FeedQuery = {
 };
 
 export type FeedPage = { items: FeedItem[]; /** Pass as `before` for the next page; null when there is no more. */ next: string | null };
+export type FeedResult = FeedPage & {
+  latestCursor: string | null;
+  /** More items remain in the requested direction. */
+  hasMore: boolean;
+};
 
 type Row = {
   kind: "f" | "n";
@@ -81,6 +86,7 @@ type Row = {
   category: string;
   release_title: string | null;
   original_url: string;
+  source_key: string;
   source_name: string;
   can_summarize: boolean;
   s_kind: "ai" | "rule" | null;
@@ -92,12 +98,16 @@ type Row = {
 /** A position in the feed: "<time to the microsecond>|<kind>|<ref>". */
 export const cursorOf = (it: Pick<FeedItem, "cursor">) => it.cursor;
 
-function parseCursor(cursor: string | undefined): { at: string; key: string } | null {
+function parseCursor(cursor: string | undefined): { at: string; key: string; excluded: string[] } | null {
   if (!cursor) return null;
-  const [at, kind, ...rest] = cursor.split("|");
+  const [position, exclusions, ...extra] = cursor.split("~");
+  if (extra.length) return null;
+  const excluded = exclusions ? exclusions.split(",") : [];
+  if (excluded.length > 100 || excluded.some((id) => !/^(?:f:\d{10}-\d{2}-\d{6}|n:\d{1,18})$/.test(id))) return null;
+  const [at, kind, ...rest] = position.split("|");
   const ref = rest.join("|");
   if (!at || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d{1,6})?Z$/.test(at) || (kind !== "f" && kind !== "n") || !ref) return null;
-  return { at, key: `${kind}:${ref}` };
+  return { at, key: `${kind}:${ref}`, excluded };
 }
 
 export function toFeedItem(r: Row): FeedItem {
@@ -116,7 +126,7 @@ export function toFeedItem(r: Row): FeedItem {
     ticker: r.ticker,
     company: r.company ?? "",
     category,
-    typeLabel: filing ? formLabel(form, { listed: r.listed }) ?? "SEC filing" : PRESS_LABEL,
+    typeLabel: filing ? formLabel(form, { listed: r.listed }) ?? "SEC filing" : r.source_key === "benzinga" ? "News" : PRESS_LABEL,
     formCode: filing ? form : null,
     items: r.items ?? [],
     sourceName: r.source_name,
@@ -134,22 +144,24 @@ export function toFeedItem(r: Row): FeedItem {
 const EXACT = (col: string) => `to_char(${col} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 const FILING_COLS = `'f' as kind, f.accession as ref, f.accepted_at as at, ${EXACT("f.accepted_at")} as at_exact, f.cik::text as cik, c.ticker, c.name as company,
   (c.exchange is not null) as listed, f.form, f.items, f.category, f.title as release_title, f.primary_url as original_url,
-  'SEC.gov' as source_name, true as can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one, s.bullets as s_bullets`;
-const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EXACT("n.published_at")} as at_exact, n.cik::text as cik, c.ticker, c.name as company,
+  'sec' as source_key, 'SEC.gov' as source_name, true as can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one, s.bullets as s_bullets`;
+const RELEASE_COLS = `'n' as kind, n.id::text as ref, n.published_at as at, ${EXACT("n.published_at")} as at_exact, c.cik::text as cik, c.ticker, c.name as company,
   (c.exchange is not null) as listed, null::text as form, null::text[] as items, 'press' as category, n.title as release_title,
-  n.url as original_url, src.name as source_name, src.can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one,
+  n.url as original_url, src.key as source_key, src.name as source_name, src.can_summarize, s.kind as s_kind, s.headline as s_headline, s.one_sentence as s_one,
   s.bullets as s_bullets`;
 
 /**
- * One page of the feed. Each half (filings, releases) is cut to the page size on its own index before
- * the two are merged, so the query stays fast however large the tables grow.
+ * The unfiltered first page favors different companies and sources from the past day.
+ * When multiple companies have recent news, show at most two items per company on that page.
+ * Later pages continue chronologically, excluding items already shown on the first page.
  */
-export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
+export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedResult> {
   const limit = Math.min(Math.max(q.limit ?? 30, 1), 100);
   const params: unknown[] = [];
   const p = (v: unknown) => `$${params.push(v)}`;
   const fWhere: string[] = ["f.category is not null"];
   const nWhere: string[] = ["n.source <> 'sec'"];
+  let releaseCompany = "n.cik";
   let filings = true;
   let releases = true;
 
@@ -160,20 +172,28 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
   }
   if (q.cik !== undefined) {
     const x = p(q.cik);
+    releaseCompany = `${x}::bigint`;
     fWhere.push(`f.cik = ${x}`);
-    nWhere.push(`n.cik = ${x}`);
+    nWhere.push(`(n.cik = ${x} or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = ${x}))`);
   }
   if (q.ciks !== undefined) {
     const x = p(q.ciks);
+    if (q.cik === undefined) {
+      releaseCompany = `coalesce((select nc.cik from public.news_companies nc where nc.news_id = n.id
+        and nc.cik = any(${x}::bigint[]) order by (nc.cik = n.cik) desc, nc.cik limit 1), n.cik)`;
+    }
     fWhere.push(`f.cik = any(${x}::bigint[])`);
-    nWhere.push(`n.cik = any(${x}::bigint[])`);
+    nWhere.push(`(n.cik = any(${x}::bigint[]) or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = any(${x}::bigint[])))`);
   }
   const text = q.text?.trim();
   if (text) {
     const like = p(`%${text.replace(/[\\%_]/g, (m) => "\\" + m)}%`);
     const exact = p(text.replace(/^\$/, "").toUpperCase());
     fWhere.push(`(c.ticker = ${exact} or c.name ilike ${like} or f.title ilike ${like} or s.headline ilike ${like})`);
-    nWhere.push(`(c.ticker = ${exact} or c.name ilike ${like} or n.title ilike ${like})`);
+    nWhere.push(`(c.ticker = ${exact} or c.name ilike ${like} or n.title ilike ${like}
+      or exists (select 1 from public.news_companies nc join public.companies linked on linked.cik = nc.cik
+                  where nc.news_id = n.id and (linked.name ilike ${like}
+                    or exists (select 1 from public.company_tickers ct where ct.cik = nc.cik and ct.ticker = ${exact}))))`);
   }
   const before = parseCursor(q.before);
   const after = parseCursor(q.after);
@@ -184,6 +204,11 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
     // each half is cut to the page size, or the item the cursor names would use up one of the places).
     fWhere.push(`f.accepted_at <= ${at}::timestamptz and (f.accepted_at, 'f:' || f.accession) < (${at}::timestamptz, ${key})`);
     nWhere.push(`n.published_at <= ${at}::timestamptz and (n.published_at, 'n:' || n.id::text) < (${at}::timestamptz, ${key})`);
+    if (before.excluded.length) {
+      const excluded = p(before.excluded);
+      fWhere.push(`('f:' || f.accession) <> all(${excluded}::text[])`);
+      nWhere.push(`('n:' || n.id::text) <> all(${excluded}::text[])`);
+    }
   }
   if (after) {
     const at = p(after.at);
@@ -202,24 +227,84 @@ export async function getFeed(db: Db, q: FeedQuery = {}): Promise<FeedPage> {
   }
   if (releases) {
     halves.push(`(select ${RELEASE_COLS}
-        from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = n.cik
+        from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = ${releaseCompany}
         left join public.summaries s on s.news_id = n.id
-       where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id ${dir} limit ${n})`);
+       where ${nWhere.join(" and ")} order by n.published_at ${dir}, n.id::text ${dir} limit ${n})`);
   }
-  if (!halves.length) return { items: [], next: null };
-  const { rows } = await db.query<Row>(
-    `select x.* from (${halves.join(" union all ")}) x
-      order by x.at ${dir}, (x.kind || ':' || x.ref) ${dir} limit ${n}`,
+  if (!halves.length) return { items: [], next: null, latestCursor: null, hasMore: false };
+  const diversify = !q.before && !q.after && !q.category && q.cik === undefined && q.ciks === undefined && !text;
+  const candidates: string[] = [];
+  if (diversify && filings) {
+    candidates.push(`(select ${FILING_COLS}
+      from public.filings f join public.companies c on c.cik = f.cik left join public.summaries s on s.accession = f.accession
+      where ${fWhere.join(" and ")} and f.accepted_at >= now() - interval '24 hours')`);
+  }
+  if (diversify && releases) {
+    candidates.push(`(select ${RELEASE_COLS}
+      from public.news n join public.news_sources src on src.key = n.source join public.companies c on c.cik = ${releaseCompany}
+      left join public.summaries s on s.news_id = n.id
+      where ${nWhere.join(" and ")} and n.published_at >= now() - interval '24 hours')`);
+  }
+  const { rows } = await db.query<Row & { promoted: boolean }>(
+    `with base as (
+      select x.* from (${halves.join(" union all ")}) x
+      order by x.at ${dir}, (x.kind || ':' || x.ref) ${dir} limit ${n}
+    )
+    select base.*, false as promoted from base
+    ${candidates.length ? `union all
+      (with company_sources as (
+        select x.*, row_number() over (
+          partition by x.cik, x.source_key order by x.at desc, (x.kind || ':' || x.ref) desc
+        ) as company_source_rank
+        from (${candidates.join(" union all ")}) x
+      ), candidates as (
+        select company_sources.*, row_number() over (
+          partition by cik order by company_source_rank, at desc, (kind || ':' || ref) desc
+        ) as company_rank
+        from company_sources
+      ), ranked as (
+        select candidates.*, row_number() over (
+          partition by source_key order by (company_rank > 2), at desc, (kind || ':' || ref) desc
+        ) as source_rank
+        from candidates
+      )
+      select ranked.kind, ranked.ref, ranked.at, ranked.at_exact, ranked.cik, ranked.ticker, ranked.company,
+        ranked.listed, ranked.form, ranked.items, ranked.category, ranked.release_title, ranked.original_url,
+        ranked.source_key, ranked.source_name, ranked.can_summarize, ranked.s_kind, ranked.s_headline,
+        ranked.s_one, ranked.s_bullets, true as promoted
+      from ranked
+      where (company_rank <= 2 or (select count(distinct cik) from candidates) = 1)
+        and (ranked.kind, ranked.ref) <> (select kind, ref from base order by at desc, (kind || ':' || ref) desc limit 1)
+      order by source_rank, at desc, (kind || ':' || ref) desc
+      limit ${p(limit - 1)})` : ""}`,
     params,
   );
-  const more = rows.length > limit;
-  const items = rows.slice(0, limit).map(toFeedItem);
-  if (dir === "asc") items.reverse();
-  return { items, next: more && dir === "desc" && items.length ? cursorOf(items[items.length - 1]) : null };
+  const newestFirst = (a: FeedItem, b: FeedItem) => a.cursor === b.cursor ? 0 : a.cursor > b.cursor ? -1 : 1;
+  const base = rows.filter((row) => !row.promoted).map(toFeedItem)
+    .sort((a, b) => dir === "asc" ? newestFirst(b, a) : newestFirst(a, b));
+  const promoted = rows.filter((row) => row.promoted).map(toFeedItem).sort(newestFirst);
+  const selected = new Map<string, FeedItem>();
+  for (const item of [...base.slice(0, 1), ...promoted, ...(!diversify || !promoted.length ? base : [])]) {
+    if (selected.size === limit) break;
+    selected.set(item.id, item);
+  }
+  const items = [...selected.values()].sort(newestFirst);
+  const firstOmitted = base.findIndex((item) => !selected.has(item.id));
+  const more = firstOmitted !== -1;
+  // The first missing chronological item, not the oldest promoted item, determines the next page.
+  const boundary = more ? base[firstOmitted - 1] : undefined;
+  const excluded = before?.excluded ?? items.filter((item) => boundary && item.cursor < boundary.cursor).map((item) => item.id);
+  return {
+    items,
+    next: more && dir === "desc" && boundary
+      ? `${cursorOf(boundary)}${excluded.length ? `~${excluded.join(",")}` : ""}` : null,
+    latestCursor: items[0]?.cursor ?? null,
+    hasMore: more,
+  };
 }
 
 /** One item by its id ("f:<accession>" or "n:<id>"), or null. */
-export async function getFeedItem(db: Db, id: string): Promise<FeedItem | null> {
+export async function getFeedItem(db: Db, id: string, companyCik?: number): Promise<FeedItem | null> {
   const [kind, ...rest] = id.split(":");
   const ref = rest.join(":");
   if (kind === "f" && /^\d{10}-\d{2}-\d{6}$/.test(ref)) {
@@ -235,10 +320,12 @@ export async function getFeedItem(db: Db, id: string): Promise<FeedItem | null> 
   if (kind === "n" && /^\d{1,18}$/.test(ref)) {
     const { rows } = await db.query<Row>(
       `select ${RELEASE_COLS}
-         from public.news n join public.news_sources src on src.key = n.source left join public.companies c on c.cik = n.cik
+         from public.news n join public.news_sources src on src.key = n.source left join public.companies c on c.cik =
+           case when $2::bigint is not null and (n.cik = $2 or exists
+             (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = $2)) then $2 else n.cik end
          left join public.summaries s on s.news_id = n.id
         where n.id = $1 and n.source <> 'sec'`,
-      [ref],
+      [ref, companyCik ?? null],
     );
     return rows[0] ? toFeedItem({ ...rows[0], company: rows[0].company ?? "" }) : null;
   }
@@ -249,10 +336,11 @@ export async function getFeedItem(db: Db, id: string): Promise<FeedItem | null> 
 export async function feedCounts(db: Db, since: Date, cik?: number): Promise<Record<Category | "all", number>> {
   const params: unknown[] = [since.toISOString()];
   const only = cik === undefined ? "" : ` and cik = $${params.push(cik)}`;
+  const newsOnly = cik === undefined ? "" : ` and (n.cik = $2 or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = $2))`;
   const { rows } = await db.query<{ category: string; n: string }>(
     `select category, count(*) as n from public.filings where accepted_at >= $1 and category is not null${only} group by category
      union all
-     select 'press', count(*) from public.news where published_at >= $1 and source <> 'sec' and cik is not null${only}`,
+     select 'press', count(*) from public.news n where n.published_at >= $1 and n.source <> 'sec' and n.cik is not null${newsOnly}`,
     params,
   );
   const out = { all: 0, press: 0, earnings: 0, news: 0, insider: 0, ipo: 0, proxy: 0 } as Record<Category | "all", number>;

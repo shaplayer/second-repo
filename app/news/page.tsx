@@ -33,7 +33,8 @@ export default async function NewsPage() {
             Filings are taking longer than usual. We&apos;ll show them here as soon as they are back.
           </p>
         )}
-        <FeedList initial={feed.items} next={feed.next} counts={counts} filters={["press", "earnings", "news", "insider", "ipo", "proxy"]} paged textFilter
+        <FeedList initial={feed.items} next={feed.next} initialAvailable={feed.ok} accountScope={user?.id}
+          counts={counts} filters={["press", "earnings", "news", "insider", "ipo", "proxy"]} paged textFilter
           signedIn={Boolean(user)} following={following} title="Latest" emptyText="Nothing in this category yet today." />
       </div>
       {!user && (

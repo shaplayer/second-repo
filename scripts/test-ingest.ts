@@ -15,6 +15,9 @@ import os from "node:os";
 import { Client, type Pool, type PoolClient } from "pg";
 import { migrate } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
+import { getFeed, getFeedItem, feedCounts } from "../lib/data/feed";
+import { matchNewItems } from "../lib/alerts/match";
+import { fetchBenzingaNews, parseBenzingaNews, pollBenzingaNews, resetBenzingaBackoff } from "../lib/ingest/benzinga";
 import { classifyFilings } from "../lib/ingest/classify";
 import { nextCompaniesToRefresh, refreshCompanyHealth, refreshCompanyProfile, type HealthDeps } from "../lib/ingest/company";
 import type { Db } from "../lib/ingest/db";
@@ -868,6 +871,101 @@ async function parserTests() {
     assert.deepEqual(parsePressRss("<html>403 Forbidden</html>"), []);
     assert.deepEqual(parsePressRss(""), []);
   });
+
+  await test("Benzinga API articles: US ticker, publication time, and body are normalized", () => {
+    const articles = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as unknown;
+    const items = parseBenzingaNews(articles);
+    assert.ok(items.length > 0);
+    const intel = items.find((item) => item.url === (articles as Record<string, unknown>[])[1].url);
+    assert.ok(intel);
+    assert.deepEqual(intel.tickers, ["INTC", "MSFT"]);
+    assert.equal(intel.publishedAt, "2026-11-26T14:30:07.000Z");
+    assert.ok(intel.description.length > 0 && !intel.description.includes("<p"));
+    const example = (articles as Record<string, unknown>[])[2];
+    const exampleArca = {
+      ...example, title: "Company announces a new partnership", stocks: [{ name: "XLK", exchange: "ARCA" }],
+    };
+    const arca = parseBenzingaNews([exampleArca]);
+    assert.ok(arca[0].tickers.includes("XLK"), "ARCA tickers are accepted");
+    const quote = { ...exampleArca, url: "https://www.benzinga.com/quote/TEST" };
+    assert.equal(parseBenzingaNews([quote]).length, 1);
+    assert.deepEqual(parseBenzingaNews([{
+      ...quote, title: "Technology stocks are rising after the latest market news",
+    }]), [], "price-movement quote headlines are excluded");
+    assert.ok(items.every((item) => item.usListed && item.url.startsWith("https://")));
+    assert.deepEqual(parseBenzingaNews([]), []);
+    assert.throws(() => parseBenzingaNews({ items: [] }), /not a news-item array/);
+  });
+
+  await test("Benzinga news requires English headlines and article text", () => {
+    const articles = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as Record<string, unknown>[];
+    const english = {
+      ...articles[1],
+      title: "Company announces a new partnership",
+      body: "<p>The company announced a partnership to expand its business and provide more services to customers across the United States.</p>",
+      teaser: "",
+    };
+    const korean = "미국 정부는 새로운 계획을 발표하고 앞으로 더 많은 연구와 개발을 지원할 것이라고 설명했습니다.".repeat(2);
+    const spanish = "La empresa anunció una nueva asociación para ampliar sus servicios y ofrecer más oportunidades a sus clientes en todo el país.";
+    assert.equal(parseBenzingaNews([english]).length, 1);
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: korean }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: korean }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: spanish }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: spanish }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: "News" }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: "" }]), []);
+    assert.deepEqual(parseBenzingaNews([{ ...english, body: "Short article" }]), []);
+    assert.equal(parseBenzingaNews([{ ...english, body: "", teaser: english.body }]).length, 1);
+    const shortInterest = {
+      ...english,
+      title: "AbbVie Short Interest Rises, Remains Below August Peak",
+      body: "<p>Short sellers added to their positions in the latest reporting period. The number of shares sold short remains below the August peak, according to the latest report.</p>",
+    };
+    assert.equal(parseBenzingaNews([shortInterest]).length, 1, "English headline mistaken for Scots is accepted");
+    assert.deepEqual(parseBenzingaNews([{ ...shortInterest, body: spanish }]), [], "the body must still be English");
+    assert.deepEqual(parseBenzingaNews([{ ...shortInterest, body: "Short article" }]), [], "the body must still be long enough");
+    for (const index of [0, 5, 7, 10]) {
+      assert.equal(parseBenzingaNews([articles[index]]).length, 1, `English fixture ${index} is accepted`);
+    }
+    const french = "L’entreprise annonce un nouveau partenariat pour développer ses activités aux États-Unis";
+    assert.deepEqual(parseBenzingaNews([{ ...english, title: french }]), []);
+  });
+
+  await test("Benzinga API client uses the configured GET query and does not expose the token in errors", async () => {
+    resetBenzingaBackoff();
+    const fixture = readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8");
+    const good = fakeFetch(() => ({ body: fixture, headers: { "content-type": "application/json" } }));
+    const items = await fetchBenzingaNews({ fetch: good.fn, token: "test-benzinga-token" });
+    assert.ok(items.length > 0);
+    const request = new URL(good.calls[0].url);
+    assert.equal(request.origin + request.pathname, "https://api.benzinga.com/api/v2/news");
+    assert.deepEqual(Object.fromEntries(request.searchParams), {
+      pageSize: "20",
+      displayOutput: "full",
+      topic_group_by: "or",
+      sort: "created:desc",
+      token: "test-benzinga-token",
+    });
+    assert.equal(good.calls[0].headers.accept, "application/json");
+
+    const korean = "미국 정부는 새로운 계획을 발표하고 앞으로 더 많은 연구와 개발을 지원할 것이라고 설명했습니다.".repeat(2);
+    const foreign = fakeFetch(() => ({ body: JSON.stringify([{ ...JSON.parse(fixture)[1], title: korean, body: korean }]) }));
+    assert.deepEqual(await fetchBenzingaNews({ fetch: foreign.fn, token: "test-benzinga-token" }), []);
+
+    await assert.rejects(fetchBenzingaNews({ fetch: good.fn, token: "" }), /BENZINGA_API_TOKEN is required/);
+    assert.equal(good.calls.length, 1, "missing token fails before network access");
+
+    const unauthorized = fakeFetch(() => ({ status: 401 }));
+    await assert.rejects(
+      fetchBenzingaNews({ fetch: unauthorized.fn, token: "test-benzinga-token" }),
+      (error: unknown) => error instanceof Error && /HTTP 401/.test(error.message) && !error.message.includes("test-benzinga-token"),
+    );
+    const refused = fakeFetch(() => ({ status: 429 }));
+    await assert.rejects(fetchBenzingaNews({ fetch: refused.fn, token: "test-benzinga-token", now: () => 1_000 }), /429/);
+    await assert.rejects(fetchBenzingaNews({ fetch: refused.fn, token: "test-benzinga-token", now: () => 2_000 }), /backing off/);
+    assert.equal(refused.calls.length, 1);
+    resetBenzingaBackoff();
+  });
 }
 
 /* ---------- database writers ---------- */
@@ -1337,6 +1435,91 @@ async function databaseTests(c: Client) {
     await quietly(() => pollPressFeeds(c, { fetch: f.fn, now: () => t }));
     assert.equal(f.calls.filter((x) => x.url === BW).length, 2, "asked again after half an hour");
     resetPressBackoff();
+  });
+
+  await test("Benzinga articles link every company, preserve quote identities, and honor permissions", async () => {
+    resetBenzingaBackoff();
+    const sample = JSON.parse(readFileSync("scripts/fixtures/benzinga-news-sample.json", "utf8")) as Record<string, unknown>[];
+    const created = new Date().toISOString();
+    const stocks = [{ name: "NWBT", exchange: "NASDAQ" }, { name: "HGRD", exchange: "NYSE" }];
+    const article = { ...sample[1], created, stocks };
+    const quote = {
+      ...sample[0], created, stocks, title: "Company announces a new partnership",
+      body: sample[1].body, url: "https://www.benzinga.com/quote/TEST",
+    };
+    const fixture = [article, quote, { ...quote, id: 999999999 }];
+    const fetcher = fakeFetch(() => ({ body: JSON.stringify(fixture), headers: { "content-type": "application/json" } }));
+    try {
+      const first = await pollBenzingaNews(c, { fetch: fetcher.fn, token: "test-benzinga-token" });
+      assert.equal(first.sources, 1);
+      assert.equal(first.newItems.length, 3);
+      const request = new URL(fetcher.calls[0].url);
+      assert.equal(request.origin + request.pathname, "https://api.benzinga.com/api/v2/news");
+      assert.equal(request.searchParams.get("pageSize"), "20");
+      assert.equal(request.searchParams.get("displayOutput"), "full");
+      assert.equal(request.searchParams.get("topic_group_by"), "or");
+      assert.equal(request.searchParams.get("token"), "test-benzinga-token");
+      assert.equal(fetcher.calls[0].headers.accept, "application/json");
+
+      const initialRows = await rows<{ id: string; body_text: string | null; url: string; source_item_id: string | null }>(
+        `select id, body_text, url, source_item_id from public.news where source = 'benzinga'`,
+      );
+      assert.ok(initialRows.every((row) => row.body_text === null));
+      assert.equal(initialRows.filter((row) => row.url === quote.url).length, 2);
+      assert.equal(await num(`select count(*) from public.news_companies where news_id = any($1::bigint[])`, [first.newItems]), 6);
+      const secondary = await getFeed(c, { cik: 9000002, category: "press", limit: 100 });
+      assert.equal(secondary.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).length, 3);
+      assert.ok(secondary.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).every((item) => item.ticker === "HGRD"));
+      const watchlist = await getFeed(c, { ciks: [9000002], category: "press", limit: 100 });
+      assert.ok(watchlist.items.filter((item) => first.newItems.includes(Number(item.id.slice(2)))).every((item) => item.ticker === "HGRD"));
+      assert.equal((await getFeedItem(c, `n:${first.newItems[0]}`))?.typeLabel, "News");
+      assert.equal((await getFeedItem(c, `n:${first.newItems[0]}`, 9000002))?.ticker, "HGRD");
+      const counts = await feedCounts(c, new Date(Date.now() - 3_600_000), 9000002);
+      assert.ok(counts.press >= 3);
+
+      await c.query(
+        `insert into public.alert_subscriptions (channel, address, cik, status, unsubscribe_token)
+         values ('email', 'benzinga-secondary@example.org', 9000002, 'active', 'benzinga_secondary_test_token')`,
+      );
+      await matchNewItems(c);
+      assert.equal(await num(
+        `select count(*) from public.alert_events e join public.alert_subscriptions s on s.id = e.subscription_id
+          where s.address = 'benzinga-secondary@example.org' and e.item_type = 'news' and e.item_ref = any($1::text[])`,
+        [first.newItems.map(String)],
+      ), 3);
+
+      const again = await pollBenzingaNews(c, { fetch: fetcher.fn, token: "test-benzinga-token" });
+      assert.deepEqual(again.newItems, []);
+
+      await c.query(`update public.news_sources set can_store_body = true where key = 'benzinga'`);
+      const withBody = [{
+        ...article,
+        id: 999999998,
+        url: "https://www.benzinga.com/news/26/11/36444586/apple-announces-quarterly-results-body-test",
+      }];
+      const bodyFetcher = fakeFetch(() => ({ body: JSON.stringify(withBody), headers: { "content-type": "application/json" } }));
+      const stored = await pollBenzingaNews(c, { fetch: bodyFetcher.fn, token: "test-benzinga-token" });
+      const body = await one<{ body_text: string }>(`select body_text from public.news where id = $1`, [stored.newItems[0]]);
+      assert.ok(body?.body_text && !body.body_text.includes("<p"));
+
+      await c.query(`update public.news_sources set enabled = false where key = 'benzinga'`);
+      const disabled = await pollBenzingaNews(c, { fetch: fetcher.fn, token: "" });
+      assert.deepEqual(disabled, { sources: 0, newItems: [] });
+      assert.equal(fetcher.calls.length, 2, "disabled source is not requested");
+
+      await c.query(`update public.news_sources set enabled = true where key = 'benzinga'`);
+      await assert.rejects(
+        pollBenzingaNews(c, { fetch: fetcher.fn, token: "" }),
+        /BENZINGA_API_TOKEN is required/,
+      );
+      assert.equal(fetcher.calls.length, 2, "missing token fails before network access");
+    } finally {
+      await c.query(`delete from public.alert_events where subscription_id in (select id from public.alert_subscriptions where address = 'benzinga-secondary@example.org')`);
+      await c.query(`delete from public.alert_subscriptions where address = 'benzinga-secondary@example.org'`);
+      await c.query(`delete from public.news where source = 'benzinga'`);
+      await c.query(`update public.news_sources set enabled = true, can_store_body = false where key = 'benzinga'`);
+      resetBenzingaBackoff();
+    }
   });
 
   console.log("database: company profile and health");

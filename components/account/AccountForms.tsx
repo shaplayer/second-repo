@@ -1,9 +1,11 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { SignupForm } from "@/components/signup/SignupForm";
+import { resetPersonalizedFeedCaches } from "@/lib/feed-query";
 
 async function post(url: string, body: unknown): Promise<{ ok: boolean; error?: string; [k: string]: unknown }> {
   try {
@@ -206,12 +208,16 @@ export function StockAlertToggle({ cik, on }: { cik: number; on: boolean }) {
 }
 
 export function RemoveStock({ cik, label }: { cik: number; label: string }) {
+  const client = useQueryClient();
   const router = useRouter();
   return (
     <button type="button" aria-label={`Remove ${label}`} className="ml-auto h-10 rounded-full border-0 bg-transparent px-3 text-[13px] font-bold text-muted hover:text-ink"
       onClick={async () => {
         const r = await post("/api/follow", { cik, remove: true });
-        if (r.ok) router.refresh();
+        if (r.ok) {
+          await resetPersonalizedFeedCaches(client);
+          router.refresh();
+        }
       }}>
       Remove
     </button>
@@ -219,6 +225,7 @@ export function RemoveStock({ cik, label }: { cik: number; label: string }) {
 }
 
 export function AddStock() {
+  const client = useQueryClient();
   const router = useRouter();
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -233,6 +240,7 @@ export function AddStock() {
       if (r.ok) {
         setText("");
         setNote(`Added ${hit.ticker ? `$${hit.ticker}` : hit.name}, with email alerts on.`);
+        await resetPersonalizedFeedCaches(client);
         router.refresh();
       } else setNote(r.error ?? "That didn't go through.");
     }}>

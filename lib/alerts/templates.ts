@@ -278,3 +278,14 @@ export function pickEmail(o: { pick: StockPick; footer: Footer }): EmailParts {
   );
   return { subject, text, html, headers: listHeaders(o.footer) };
 }
+
+/** A clearly identified test, never a published pick. */
+export function testAlertEmail(o: { subject: string; body: string; footer: Footer }): EmailParts {
+  const subject = `[TEST] ${o.subject}`;
+  const label = "Test email only. This is not a stock pick.";
+  const text = [label, "", o.body, "", footerText(o.footer)].join("\n");
+  const html = layout(subject,
+    `<p style="font-weight:800">${label}</p><p style="white-space:pre-line">${esc(o.body)}</p>`,
+    footerHtml(o.footer));
+  return { subject, text, html, headers: listHeaders(o.footer) };
+}

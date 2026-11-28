@@ -1,10 +1,13 @@
 "use client";
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { resetPersonalizedFeedCaches } from "@/lib/feed-query";
 
 /** "+ My stocks": one click when signed in; otherwise it leads to sign-in and back. */
 export function FollowButton({ cik, ticker, signedIn, inList }: { cik: number; ticker: string | null; signedIn: boolean; inList: boolean }) {
+  const client = useQueryClient();
   const router = useRouter();
   const [on, setOn] = useState(inList);
   const [busy, setBusy] = useState(false);
@@ -20,6 +23,7 @@ export function FollowButton({ cik, ticker, signedIn, inList }: { cik: number; t
     }).catch(() => null);
     if (res?.ok) {
       setOn(!on);
+      await resetPersonalizedFeedCaches(client);
       router.refresh();
     }
     setBusy(false);

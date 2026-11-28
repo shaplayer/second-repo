@@ -84,7 +84,8 @@ export async function listMyStocks(db: Db, user: User, since?: Date): Promise<My
             exists (select 1 from public.alert_subscriptions a
                      where a.channel = 'email' and a.address = $2 and a.cik = c.cik and a.status = 'active') as alerts,
             (select count(*) from public.filings f where f.cik = c.cik and f.category is not null and f.accepted_at > $3)
-          + (select count(*) from public.news n where n.cik = c.cik and n.source <> 'sec' and n.published_at > $3) as fresh
+          + (select count(*) from public.news n where n.source <> 'sec' and n.published_at > $3
+               and (n.cik = c.cik or exists (select 1 from public.news_companies nc where nc.news_id = n.id and nc.cik = c.cik))) as fresh
        from (select cik, min(added_at) as added_at from mine group by cik) m
        join public.companies c on c.cik = m.cik
       order by m.added_at desc, c.name`,

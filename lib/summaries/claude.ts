@@ -8,9 +8,10 @@
  *   original, so the prompt asks only for what the document says: never advice.
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { OpenRouter } from "@openrouter/sdk";
 import type { SummaryInput, Summarizer } from "./common";
 import { SummaryRefused, SCHEMA, SYSTEM, debugFetch } from "./common";
-import { parseSummaryJSON, parseSummaryText } from "./parser";
+import { parseSummaryJSON, parseOpenRouterSummaryJSON, parseSummaryText } from "./parser";
 
 function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
@@ -44,9 +45,8 @@ const anthropic = () => {
       });
 
     case "openrouter":
-      return new Anthropic({
-        baseURL: requiredEnv("OPENROUTER_BASE_URL"),
-        authToken: requiredEnv("OPENROUTER_API_KEY"),
+      return new OpenRouter({
+        apiKey: requiredEnv("OPENROUTER_API_KEY"),
       });
     
     case "do":
@@ -84,7 +84,7 @@ export const summarizeWithAnthropic: Summarizer = async (input) => {
     if (!client) throw new Error("SUMMARY_PROVIDER is not set, so summaries cannot be written.");
     if(process.env.SUMMARY_PROVIDER?.trim() == "anthropic") {
       // SDK call for anthropic
-      const response = await client.beta.messages.create({
+      const response = await (client as Anthropic).beta.messages.create({
         model: summarymodel(),
         max_tokens: 16000,
         betas: ["server-side-fallback-2026-07-01"],
@@ -103,9 +103,39 @@ export const summarizeWithAnthropic: Summarizer = async (input) => {
         inputTokens: response.usage.input_tokens ?? 0,
         outputTokens: response.usage.output_tokens ?? 0,
       };
+    } else if (process.env.SUMMARY_PROVIDER?.trim() == "openrouter") {
+      // SDK call for openrouter models
+      const response = await (client as OpenRouter).chat.send({
+        chatRequest: {
+          messages: [
+            { role: "user", content: userPrompt(input) },
+            { role: "system", content: SYSTEM },
+          ],
+          model: summarymodel(),
+          maxTokens: 16000,
+          reasoning: { "effort": "medium", "summary": "concise" },
+          responseFormat: {
+            type: "json_schema",
+            jsonSchema: {
+              name: "summary",
+              description: "Summary in JSON format",
+              schema: SCHEMA,
+              strict: true,
+            },
+          },
+        }
+      });
+      if (response.choices[0].finishReason === "refusal" || response.choices[0].message.refusal) throw new SummaryRefused(`Openrouter stopped execution due to error ${JSON.stringify(response.choices[0].message)}`);
+      const out = response.choices[0].message.content;
+      return {
+        ...parseOpenRouterSummaryJSON(out as string),
+        model: response.model || summarymodel(),
+        inputTokens:  (response?.usage?.totalTokens ?? 0 - (response?.usage?.completionTokens ?? 0)),
+        outputTokens: response?.usage?.completionTokens ?? 0,
+      };
     } else {
       // SDK call for openrouter and local models
-      const response = await client.messages.create({
+      const response = await (client as Anthropic).messages.create({
         model: summarymodel(),
         max_tokens: 16000,
         system: SYSTEM,

@@ -19,6 +19,10 @@ import { recordBackfillRun, runBackfill, type BackfillReport, type StepReport } 
 import { BASIC_SUMMARY_WHY, derivedToken } from "../lib/backfill/mapping";
 import { confirmSignup, peekConfirmation, peekUnsubscribe, signUp } from "../lib/alerts/subscriptions";
 import { signInVerifiedEmail } from "../lib/auth/accounts";
+import { authenticateApiKey } from "../lib/auth/api-keys";
+import { sha256Hex } from "../lib/auth/secret";
+import { getFeed } from "../lib/data/feed";
+import { listNewsSources, parseNewsSourceUpdate, updateNewsSource } from "../lib/data/news-sources";
 import { loadCompanies } from "../lib/db/companies";
 import { migrate, readMigrations } from "../lib/db/migrate";
 import { describeTarget } from "../lib/db/target";
@@ -245,12 +249,48 @@ async function main() {
       const first = await migrate(app, { upTo: LAST_OLD_MIGRATION });
       assert.equal(first.applied.length, 7);
       await seedOldApp(app);
-      const second = await migrate(app);
-      assert.equal(second.applied.length, NEWER);
+      const second = await migrate(app, { upTo: "20261124130000" });
+      assert.equal(second.applied.length, readMigrations().filter((m) => m.version > LAST_OLD_MIGRATION && m.version <= "20261124130000").length);
       assert.equal(second.alreadyApplied, 7);
+      const existingKey = "a".repeat(43);
+      await app.query(`insert into public.users (id, email) values ($1, 'alice@example.org')`, [U1]);
+      await app.query(`insert into public.pick_api_keys (key_hash, name, created_by) values ($1, 'Existing application', $2)`, [sha256Hex(existingKey), U1]);
       const third = await migrate(app);
-      assert.equal(third.applied.length, 0, "running again changes nothing");
-      assert.equal(third.alreadyApplied, 7 + NEWER);
+      assert.equal(third.applied.length, NEWER - second.applied.length);
+      assert.equal(await authenticateApiKey(app, `Bearer ${existingKey}`), "Existing application");
+      assert.equal(await num(app, `select count(*) from public.api_keys where key_hash = $1`, [sha256Hex(existingKey)]), 1);
+      assert.equal(await num(app, `select count(*) from public.pick_api_keys where key_hash = $1`, [sha256Hex(existingKey)]), 1);
+      await app.query(`insert into public.pick_api_keys (key_hash, name, created_by) values ($1, 'Old deployment', $2)`, [sha256Hex("b".repeat(43)), U1]);
+      assert.equal(await authenticateApiKey(app, `Bearer ${"b".repeat(43)}`), "Old deployment");
+      assert.equal(await num(app, `select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = 'api_keys' and grantee in ('anon', 'authenticated')`), 0);
+      assert.equal(await num(app, `select count(*) from information_schema.role_table_grants where table_schema = 'public' and table_name = 'pick_api_keys' and grantee in ('anon', 'authenticated', 'PUBLIC')`), 0);
+      await app.query(`delete from public.api_keys where created_by = $1`, [U1]);
+      await app.query(`delete from public.users where id = $1`, [U1]);
+      const fourth = await migrate(app);
+      assert.equal(fourth.applied.length, 0, "running again changes nothing");
+      assert.equal(fourth.alreadyApplied, 7 + NEWER);
+    });
+
+    await test("staff can update existing source settings without overwriting concurrent changes", async () => {
+      await app.query("begin");
+      try {
+        const source = (await listNewsSources(app)).find((item) => item.key === "benzinga");
+        assert.ok(source);
+        const update = parseNewsSourceUpdate({
+          key: source.key, original: source,
+          settings: { ...source, enabled: false, can_store_body: true, can_summarize: true, terms_note: "Permissions confirmed." },
+        });
+        const saved = await updateNewsSource(app, update);
+        assert.equal(saved?.enabled, false);
+        assert.equal(saved?.can_store_body, true);
+        assert.equal(saved?.can_summarize, true);
+        assert.equal(saved?.terms_note, "Permissions confirmed.");
+        assert.equal(await updateNewsSource(app, update), null);
+        assert.equal(await updateNewsSource(app, { ...update, key: "not_present" }), null);
+        assert.equal(await updateNewsSource(app, { ...update, key: "sec" }), null);
+      } finally {
+        await app.query("rollback");
+      }
     });
 
     await test("a failing migration is rolled back completely", async () => {
@@ -559,6 +599,124 @@ async function main() {
       assert.equal(s.skipped["link is not https"], 1);
       assert.ok(s.notes.join(" ").includes("Sample Wire"));
       assert.equal(await num(app, `select count(*) from public.news where url like '%example.com%'`), 0);
+    });
+
+    await test("feed cursors: same-time release IDs page consistently and newer batches report their catch-up boundary", async () => {
+      await app.query("begin");
+      try {
+        for (const id of [990, 99, 1000]) {
+          await app.query(
+            `insert into public.news (id, source, cik, title, url, published_at)
+            overriding system value
+             values ($1, 'prnewswire', 320193, 'Cursor test', $2, '2070-01-01T00:00:00.123456Z')`,
+            [id, `https://www.prnewswire.com/news-releases/cursor-test-${id}.html`],
+          );
+        }
+        const first = await getFeed(app, { category: "press", cik: 320193, limit: 1 });
+        assert.equal(first.items[0].id, "n:990", "each SQL half uses the same text-ID order as the merged feed");
+        assert.equal(first.hasMore, true);
+        assert.equal(first.latestCursor, first.items[0].cursor);
+        const second = await getFeed(app, { category: "press", cik: 320193, limit: 1, before: first.next! });
+        assert.equal(second.items[0].id, "n:99");
+        const third = await getFeed(app, { category: "press", cik: 320193, limit: 1, before: second.next! });
+        assert.equal(third.items[0].id, "n:1000");
+        const newer = await getFeed(app, { category: "press", cik: 320193, limit: 1, after: third.items[0].cursor });
+        assert.deepEqual([newer.items[0].id, newer.next, newer.hasMore], ["n:99", null, true]);
+        const final = await getFeed(app, { category: "press", cik: 320193, limit: 1, after: newer.latestCursor! });
+        assert.deepEqual([final.items[0].id, final.hasMore], ["n:990", false]);
+        assert.match(final.latestCursor!, /\.123456Z\|n\|990$/);
+      } finally {
+        await app.query("rollback");
+      }
+    });
+
+    await test("feed: company and text filters remain chronological", async () => {
+      await app.query("begin");
+      try {
+        await app.query(`update public.filings set accepted_at = now() - interval '7 minutes', title = 'Diversity test', category = 'news'
+          where accession = '0000320193-26-000018'`);
+        await app.query(`insert into public.news (id, source, cik, title, url, published_at)
+          overriding system value values
+          (9001, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9001', now() - interval '1 minute'),
+          (9002, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9002', now() - interval '2 minutes'),
+          (9003, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9003', now() - interval '3 minutes'),
+          (9004, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9004', now() - interval '4 minutes'),
+          (9005, 'prnewswire', 320193, 'Diversity test', 'https://example.org/diversity-9005', now() - interval '5 minutes'),
+          (9006, 'businesswire', 320193, 'Diversity test', 'https://example.org/diversity-9006', now() - interval '8 minutes'),
+          (9007, 'benzinga', 320193, 'Diversity test', 'https://example.org/diversity-9007', now() - interval '9 minutes'),
+          (9008, 'globenewswire', 320193, 'Diversity test', 'https://example.org/diversity-9008', now() - interval '25 hours')`);
+
+        const first = await getFeed(app, { cik: 320193, text: "Diversity test", limit: 4 });
+        assert.deepEqual(first.items.map((item) => item.id), ["n:9001", "n:9002", "n:9003", "n:9004"]);
+        assert.equal(first.latestCursor, first.items[0].cursor);
+        assert.ok(first.next);
+        const seen = first.items.map((item) => item.id);
+        let next: string | null = first.next;
+        while (next) {
+          const page = await getFeed(app, { cik: 320193, text: "Diversity test", limit: 4, before: next });
+          seen.push(...page.items.map((item) => item.id));
+          next = page.next;
+        }
+        assert.equal(new Set(seen).size, seen.length);
+        for (const id of ["n:9005", "n:9006", "n:9007", "n:9008", "f:0000320193-26-000018"]) assert.ok(seen.includes(id), `missing ${id}: ${seen.join(", ")}`);
+
+        const filtered = await getFeed(app, { category: "press", text: "Diversity test", limit: 3 });
+        assert.deepEqual(filtered.items.map((item) => item.id), ["n:9001", "n:9002", "n:9003"]);
+        const newer = await getFeed(app, { cik: 320193, text: "Diversity test", after: first.items[3].cursor, limit: 2 });
+        assert.deepEqual(newer.items.map((item) => item.id), ["n:9002", "n:9003"]);
+        assert.equal(newer.hasMore, true);
+      } finally {
+        await app.query("rollback");
+      }
+    });
+
+    await test("feed: the main page balances companies and sources without losing older posts", async () => {
+      await app.query("begin");
+      try {
+        await app.query(`insert into public.news (id, source, cik, title, url, published_at)
+          overriding system value values
+          (9101, 'benzinga', 320193, 'One', 'https://example.org/diverse-9101', now() + interval '60 minutes'),
+          (9102, 'benzinga', 320193, 'Two', 'https://example.org/diverse-9102', now() + interval '59 minutes'),
+          (9103, 'benzinga', 320193, 'Three', 'https://example.org/diverse-9103', now() + interval '58 minutes'),
+          (9104, 'benzinga', 320193, 'Four', 'https://example.org/diverse-9104', now() + interval '57 minutes'),
+          (9105, 'benzinga', 320193, 'Five', 'https://example.org/diverse-9105', now() + interval '56 minutes'),
+          (9106, 'benzinga', 789019, 'Six', 'https://example.org/diverse-9106', now() + interval '55 minutes'),
+          (9107, 'prnewswire', 1652044, 'Seven', 'https://example.org/diverse-9107', now() + interval '54 minutes'),
+          (9108, 'businesswire', 1067983, 'Eight', 'https://example.org/diverse-9108', now() + interval '53 minutes'),
+          (9109, 'benzinga', 9000001, 'Nine', 'https://example.org/diverse-9109', now() + interval '52 minutes')`);
+
+        const first = await getFeed(app, { limit: 5 });
+        assert.deepEqual(first.items.map((item) => item.id), ["n:9101", "n:9102", "n:9106", "n:9107", "n:9108"]);
+        const roomy = await getFeed(app, { limit: 30 });
+        assert.equal(roomy.items.filter((item) => item.cik === 320193).length, 2, "a burst cannot fill otherwise unused places");
+        assert.equal(first.latestCursor, first.items[0].cursor);
+        assert.ok(first.next);
+        const seen = first.items.map((item) => item.id);
+        let next: string | null = first.next;
+        while (next) {
+          const page = await getFeed(app, { limit: 5, before: next });
+          seen.push(...page.items.map((item) => item.id));
+          next = page.next;
+        }
+        assert.equal(new Set(seen).size, seen.length);
+        for (let id = 9101; id <= 9109; id++) assert.ok(seen.includes(`n:${id}`), `missing ${id}`);
+        const one = await getFeed(app, { limit: 1 });
+        assert.equal(one.items[0].id, "n:9101");
+        assert.ok(one.next);
+        assert.equal((await getFeed(app, { limit: 1, before: one.next! })).items[0].id, "n:9102");
+        const company = await getFeed(app, { cik: 320193, limit: 5 });
+        assert.deepEqual(company.items.map((item) => item.id), ["n:9101", "n:9102", "n:9103", "n:9104", "n:9105"]);
+        await app.query(`update public.news set cik = 320193 where id = 9107`);
+        const sharedCompany = await getFeed(app, { limit: 5 });
+        assert.ok(sharedCompany.items.some((item) => item.id === "n:9107"), "another source is represented for the same company");
+        assert.equal(sharedCompany.items.filter((item) => item.cik === 320193).length, 2);
+        await app.query(`update public.news set published_at = now() - interval '100 days' where id not between 9101 and 9105`);
+        await app.query(`update public.filings set accepted_at = now() - interval '100 days'`);
+        const oneCompany = await getFeed(app, { limit: 5 });
+        assert.deepEqual(oneCompany.items.map((item) => item.id), ["n:9101", "n:9102", "n:9103", "n:9104", "n:9105"]);
+      } finally {
+        await app.query("rollback");
+      }
     });
 
     await test("subscriptions: the right people, the right status", async () => {
@@ -886,6 +1044,7 @@ async function main() {
       assert.equal(p[0].legacy.close_after, 12.9);
       assert.ok(step("picks").notes.join(" ").includes("1 sponsored alerts had no compensation text"));
       assert.equal(await num(app, `select count(*) from public.picks`), 6, "the old app's two picks are still there");
+      assert.equal(await num(app, `select count(*) from public.picks where starts_at = posted_at`), 6, "existing and imported picks retain their original publication dates");
     });
 
     await test("the switch-over run copies sends and inquiries; an unfinished send can never be resumed here", async () => {
@@ -960,7 +1119,7 @@ async function main() {
 
     await test("row-level security: a visitor sees none of the server-only tables", async () => {
       // The new tables give the public roles no rights at all; the old app's picks table keeps its rights and shows no rows.
-      for (const t of ["companies", "company_tickers", "filings", "news", "news_sources", "summaries", "fundamentals_snapshots",
+      for (const t of ["companies", "company_tickers", "filings", "news", "news_companies", "news_sources", "summaries", "fundamentals_snapshots",
         "alert_events", "alert_subscriptions", "broadcasts", "inquiries", "users", "watchlists", "backfill_runs", "job_state", "summary_jobs",
         "login_tokens", "sessions", "suppressions", "digests", "rate_limits"]) {
         await as("anon", null, () => assert.rejects(app.query(`select count(*) from public.${t}`), /permission denied/, t));
@@ -976,7 +1135,7 @@ async function main() {
 
     await test("no way in from a browser: a Supabase sign-in token reads and changes nothing, even for its own id", async () => {
       await app.query(`update public.alert_subscriptions set user_id = $1 where address = 'alice@example.org' and cik = 320193`, [U1]);
-      const tables = ["users", "watchlists", "alert_subscriptions", "alert_events", "login_tokens", "sessions", "suppressions", "inquiries", "companies"];
+      const tables = ["users", "watchlists", "alert_subscriptions", "alert_events", "login_tokens", "sessions", "suppressions", "inquiries", "companies", "news_companies"];
       for (const role of ["anon", "authenticated"] as const) {
         for (const t of tables) {
           await as(role, U1, () => assert.rejects(app.query(`select count(*) from public.${t}`), /permission denied/, `${role} reading ${t}`));

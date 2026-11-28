@@ -24,7 +24,7 @@ export default async function PicksPage() {
   const schedule = pickSchedule();
   const company = latest?.cik ? await getCompanyByCik(pool, latest.cik).catch(() => null) : null;
   const health = latest?.cik ? await getSnapshot(pool, latest.cik).catch(() => null) : null;
-  const today = latest && Date.now() - Date.parse(latest.postedAt) < 20 * 3600_000;
+  const today = latest && Date.now() - Date.parse(latest.startsAt) < 20 * 3600_000;
 
   return (
     <Shell>
@@ -61,7 +61,7 @@ export default async function PicksPage() {
           <div className="card-mint flex flex-wrap gap-6 rounded-[28px] px-5 py-6 md:px-7">
             <div className="flex min-w-0 flex-[1_1_360px] flex-col gap-2">
               <h2 id="pk-today" className="eyebrow m-0 text-[13px]">
-                {today ? `Today's pick · Sent ${clockET(latest.postedAt)} ET` : `Latest pick · ${dateET(latest.postedAt)}`}
+                {today ? `Today's pick · Sent ${clockET(latest.startsAt)} ET` : `Latest pick · ${dateET(latest.startsAt)}`}
               </h2>
               <span className="text-[32px] font-extrabold tracking-[-0.03em] md:text-[40px]">
                 ${latest.ticker} <span className="text-lg font-bold text-muted">{latest.company}</span>
@@ -105,7 +105,7 @@ export default async function PicksPage() {
             return (
               <Link key={p.id} href={`/stock/${encodeURIComponent(p.ticker)}`}
                 className="flex flex-wrap items-baseline gap-x-4 gap-y-1 border-t border-line-soft px-5 py-4 text-ink no-underline hover:text-ink md:px-6">
-                <span className="num w-[92px] flex-none text-[13px] text-muted">{dateET(p.postedAt)}</span>
+                <span className="num w-[92px] flex-none text-[13px] text-muted">{dateET(p.startsAt)}</span>
                 <span className="w-20 flex-none font-extrabold">${p.ticker}</span>
                 <span className="min-w-0 flex-[1_1_320px] text-[15px] leading-[1.45]">
                   {p.title}

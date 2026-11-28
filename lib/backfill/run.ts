@@ -442,13 +442,13 @@ async function stepNews(ctx: Ctx): Promise<StepReport> {
        select x.source, x.cik, x.ticker, x.company_name, x.title, x.url, x.published::timestamptz
          from jsonb_to_recordset($1::jsonb)
            as x(source text, cik bigint, ticker text, company_name text, title text, url text, published text)
-       on conflict (url) do nothing`,
+       on conflict do nothing`,
       [JSON.stringify(good)],
     );
     r.inserted += ins.rowCount ?? 0;
     skip(r, "already in news", good.length - (ins.rowCount ?? 0));
     const urls = [...new Set(good.map((g) => String(g.url)))];
-    await prove(ctx, "news", urls.length, `select count(*) from public.news where url = any($1::text[])`, [urls]);
+    await prove(ctx, "news", urls.length, `select count(distinct url) from public.news where url = any($1::text[])`, [urls]);
   });
   if (unknownSources.size) {
     r.notes.push(`Sources not copied: ${[...unknownSources].map(([s, n]) => `${s} (${n})`).join(", ")}`);
@@ -912,9 +912,9 @@ async function stepPicks(ctx: Ctx): Promise<StepReport> {
     const { rows } = await target.query<{ inserted: boolean }>(
       `insert into public.picks as p
          (ticker, company_name, cik, kind, title, why, author, tier, posted_at, price_at_post, owns_shares, ownership_note,
-          disclosure_text, imported_from, legacy_id, legacy)
+          disclosure_text, imported_from, legacy_id, legacy, starts_at)
        select x.ticker, x.company_name, x.cik, x.kind, x.title, x.why, 'BigStocks', 'free', x.posted::timestamptz, x.price::numeric,
-              null, '', x.disclosure, 'data-site:alerts', x.legacy_id, x.legacy
+              null, '', x.disclosure, 'data-site:alerts', x.legacy_id, x.legacy, x.posted::timestamptz
          from jsonb_to_recordset($1::jsonb)
            as x(ticker text, company_name text, cik bigint, kind text, title text, why text, posted text, price text,
                 disclosure text, legacy_id text, legacy jsonb)

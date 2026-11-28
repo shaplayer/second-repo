@@ -26,6 +26,25 @@ The header, homepage, health check, and not-found page use [TickerSearch](./comp
 Each caller passes `action="/search"`. The form sends a GET request to `/search?q=...`, where company
 results and exact-ticker redirects are handled.
 
+## Feed loading and live updates
+
+[FeedList](./components/feed/FeedList.tsx) uses TanStack Query through the shared
+[QueryProvider](./components/ui/QueryProvider.tsx). The server supplies the first page; an infinite
+query caches each company/category/search/account combination and loads older posts with `before`.
+The homepage requests 60 posts and displays 12 grouped rows; news and company pages request 30.
+
+A separate query checks `/api/feed` every 10 seconds while the tab is visible and updates are not
+paused. It uses `after`, `latestCursor`, and `hasMore` to catch up through newer batches immediately,
+without refreshing older pages. New posts wait behind the "show new posts" button. Showing them
+deduplicates IDs and preserves the older-page cursor. Focus and reconnect trigger another live check.
+Text search is debounced by 250 ms; obsolete requests are aborted. Failed requests retain cached posts
+and offer a retry instead of treating an error as an empty feed.
+
+Opening a headline uses an item-keyed summary query. Pending summaries are checked every three
+seconds, up to 40 successful checks; ready/unavailable results stop polling. Summaries and feed data
+come from database-backed API routes, not outside services. Sign-out reloads the document and clears
+the in-memory query cache; feed keys also separate accounts.
+
 ## Run locally
 
 ```bash

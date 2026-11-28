@@ -124,13 +124,13 @@ async function main() {
   await snap(CIK.MSFT, null, [], 0, 0);
 
   await db.query(
-    `insert into public.picks (ticker, company_name, cik, kind, title, why, author, tier, posted_at, owns_shares, ownership_note, sponsor, source_url, matched_at) values
+    `insert into public.picks (ticker, company_name, cik, kind, title, why, author, tier, posted_at, owns_shares, ownership_note, sponsor, source_url, matched_at, starts_at) values
        ('HGRD', 'Halcyon Grid Systems Corp', $1, 'pick', 'First profitable quarter and a fourth quarter of sales growth in a row.',
-        'The quarterly report filed this morning shows sales up 18% from a year ago and the first net profit in the company''s history.', 'BigStocks', 'free', now() - interval '3 hours', false, '', null, null, now()),
+        'The quarterly report filed this morning shows sales up 18% from a year ago and the first net profit in the company''s history.', 'BigStocks', 'free', now() - interval '3 hours', false, '', null, null, now(), now() - interval '3 hours'),
        ('CPLMF', 'Copperline Minerals Ltd', $2, 'sponsored', 'Reports new high-grade drill results at its main project.',
         'The company published assay results from twelve drill holes.', 'BigStocks', 'free', now() - interval '2 days', false, '',
-        '{"payer":"Copperline Minerals Ltd","amount":"$5,000","form":"cash"}', null, now()),
-       ('AAPL', 'Apple Inc.', $3, 'pick', 'Services sales reached a record for a sixth quarter in a row.', '', 'BigStocks', 'free', now() - interval '4 days', false, '', null, null, now())`,
+        '{"payer":"Copperline Minerals Ltd","amount":"$5,000","form":"cash"}', null, now(), now() - interval '2 days'),
+       ('AAPL', 'Apple Inc.', $3, 'pick', 'Services sales reached a record for a sixth quarter in a row.', '', 'BigStocks', 'free', now() - interval '4 days', false, '', null, null, now(), now() - interval '4 days')`,
     [CIK.HGRD, CIK.CPLMF, CIK.AAPL],
   );
   await db.query(`insert into public.users (email, is_admin) values ('dev@example.org', true)`);

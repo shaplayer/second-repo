@@ -57,7 +57,7 @@ export async function ItemPage({ item }: { item: FeedItem }) {
               <SummaryLoader id={item.id} originalUrl={item.originalUrl} sourceName={item.sourceName} />
             ) : (
               <p className="m-0 text-base leading-normal text-ink-2">
-                {item.sourceName} doesn&apos;t let us summarize its releases, so here is the headline and the link to the original.
+                {item.sourceName} doesn&apos;t let us summarize this content, so here is the headline and the link to the original.
               </p>
             )}
           </section>

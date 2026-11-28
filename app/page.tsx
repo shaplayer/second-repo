@@ -45,7 +45,7 @@ export default async function Home() {
   const schedule = pickSchedule();
   const fresh = mine.value.reduce((n, s) => n + s.fresh, 0);
   const mineLatest = mine.value.filter((s) => s.latest).sort((a, b) => b.latest!.publishedAt.localeCompare(a.latest!.publishedAt)).slice(0, 3);
-  const pickIsToday = pick.value && Date.now() - Date.parse(pick.value.postedAt) < 20 * 3600_000;
+  const pickIsToday = pick.value && Date.now() - Date.parse(pick.value.startsAt) < 20 * 3600_000;
 
   return (
     <Shell search={false}>
@@ -85,7 +85,7 @@ export default async function Home() {
             {pick.value && (
               <Link href="/picks" className="flex max-w-[560px] flex-wrap items-center gap-x-3.5 gap-y-1.5 rounded-[18px] border border-white/[0.12] bg-white/[0.07] px-4 py-3.5 text-white no-underline hover:text-white">
                 <span className="text-xs font-extrabold tracking-[0.08em] text-dark-accent">
-                  {pickIsToday ? `TODAY'S PICK · SENT ${clockET(pick.value.postedAt)} ET` : "LATEST PICK"}
+                  {pickIsToday ? `TODAY'S PICK · SENT ${clockET(pick.value.startsAt)} ET` : "LATEST PICK"}
                 </span>
                 <span className="text-xl font-extrabold">${pick.value.ticker}</span>
                 <span className="min-w-0 flex-[1_1_240px] text-sm leading-[1.45] text-dark-muted">{pick.value.title}</span>
@@ -163,7 +163,8 @@ export default async function Home() {
           </p>
         )}
         <FeedList
-          initial={feed.value.items} next={feed.value.next} counts={counts.value} filters={[...FILTERS]} signedIn={Boolean(user)} following={following.value}
+          initial={feed.value.items} next={feed.value.next} initialAvailable={feed.ok} pageSize={60} accountScope={user?.id}
+          counts={counts.value} filters={[...FILTERS]} signedIn={Boolean(user)} following={following.value}
           rows={12} moreHref="/news" moreLabel="See all live news" emptyText="Nothing in this category in the last few minutes."
         />
       </section>

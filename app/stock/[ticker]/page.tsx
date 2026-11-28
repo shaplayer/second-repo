@@ -64,7 +64,7 @@ export default async function StockPage({ params }: Props) {
   await markViewed(pool, company.cik).catch(() => {});
   const [snapshot, feed, counts, mine, alerts] = await Promise.all([
     getSnapshot(pool, company.cik).catch(() => null),
-    getFeed(pool, { cik: company.cik, limit: 30 }).catch(() => ({ items: [], next: null })),
+    getFeed(pool, { cik: company.cik, limit: 30 }).then((page) => ({ ...page, ok: true })).catch(() => ({ items: [], next: null, ok: false })),
     feedCounts(pool, new Date(Date.now() - 365 * 86_400_000), company.cik).catch(() => undefined),
     user ? watchlistCiks(pool, user.id).catch(() => [] as number[]) : Promise.resolve([] as number[]),
     user ? alertCiks(pool, user.email).catch(() => [] as number[]) : Promise.resolve([] as number[]),
@@ -123,7 +123,8 @@ export default async function StockPage({ params }: Props) {
       <section className="wrap flex flex-wrap items-start gap-5 pb-12">
         <div className="min-w-0 flex-[999_1_560px]">
           <FeedList
-            initial={feed.items} next={feed.next} cik={company.cik} counts={counts} filters={["press", "earnings", "news", "insider"]} hideTicker paged
+            initial={feed.items} next={feed.next} initialAvailable={feed.ok} accountScope={user?.id}
+            cik={company.cik} counts={counts} filters={["press", "earnings", "news", "insider"]} hideTicker paged
             title="News & filings" signedIn={Boolean(user)} following={alerts}
             emptyText={company.profileReady ? `Nothing from ${tk} in this category yet.` : "Gathering filings…"}
           />

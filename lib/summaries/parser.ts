@@ -46,6 +46,24 @@ export function parseSummaryJSON(textcontent: string): Pick<SummaryOutput, "head
   return { headline, oneSentence, bullets, tone, importance };
 }
 
+export function parseOpenRouterSummaryJSON(textcontent: string): Pick<SummaryOutput, "headline" | "oneSentence" | "bullets" | "tone" | "importance"> {
+  let raw: Record<string, unknown>;
+  try {
+    raw = JSON.parse(textcontent);
+  } catch {
+    throw new SummaryRefused("The summary came back in a form that could not be read.");
+  }
+  const headline = clean(raw.headline, 160);
+  const oneSentence = clean(raw.one_sentence, 400);
+  const bullets = (Array.isArray(raw.bullets) ? raw.bullets : []).map((b) => clean(b, 300)).filter(Boolean).slice(0, 4);
+  const tone = (SCHEMA.properties.tone.enum as readonly string[]).includes(String(raw.tone)) ? (raw.tone as SummaryOutput["tone"]) : "Routine";
+  const importance = (SCHEMA.properties.importance.enum as readonly string[]).includes(String(raw.importance))
+    ? (raw.importance as SummaryOutput["importance"])
+    : "Medium";
+  if (!headline || !oneSentence) throw new SummaryRefused("The summary came back empty.");
+  return { headline, oneSentence, bullets, tone, importance };
+}
+
 export function parseSummaryText(textcontent: string): Pick<SummaryOutput, "headline" | "oneSentence" | "bullets" | "tone" | "importance"> {
   const text = textcontent
     .split(/\r?\n/)
