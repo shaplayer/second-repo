@@ -36,7 +36,7 @@ export async function scheduleTestAlert(db: Db, userId: string, input: {
     throw new TestAlertInputError("Choose a valid date and time.");
   }
   const date = new Date(scheduledAt);
-  const canonicalTimestamp = scheduledAt.replace(/(?:\.000)?Z$/, ".000Z");
+  const canonicalTimestamp = scheduledAt.includes(".") ? scheduledAt : scheduledAt.replace(/Z$/, ".000Z");
   if (!Number.isFinite(date.getTime()) || date.toISOString() !== canonicalTimestamp || date.getTime() <= Date.now()) {
     throw new TestAlertInputError("Choose a time in the future.");
   }

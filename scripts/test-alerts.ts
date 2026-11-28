@@ -685,9 +685,15 @@ async function main() {
       }
       const input = { subject: "Delivery check", body: "This is a test.", scheduledAt: new Date(Date.now() + 60_000).toISOString(), recipients: ids, confirm: true };
       await assert.rejects(scheduleTestAlert(db, user.id, { ...input, confirm: false }), /Confirm/);
-      await assert.rejects(scheduleTestAlert(db, user.id, {
-        ...input, scheduledAt: "2099-02-30T12:00:00Z",
-      }), /Choose a time in the future/);
+      for (const scheduledAt of ["2099-02-30T12:00:00Z", "2099-02-30T12:00:00.123Z", "2099-02-29T12:00:00.000Z"]) {
+        await assert.rejects(scheduleTestAlert(db, user.id, { ...input, scheduledAt }), /Choose a time in the future/);
+      }
+      for (const scheduledAt of ["2096-02-29T12:00:00Z", "2096-02-29T12:00:00.000Z", "2096-02-29T12:00:00.123Z"]) {
+        const scheduled = await scheduleTestAlert(db, user.id, { ...input, scheduledAt });
+        const stored = await one<{ scheduled_at: Date }>(db, `select scheduled_at from public.test_alerts where id = $1`, [scheduled]);
+        assert.equal(stored.scheduled_at.toISOString(), new Date(scheduledAt).toISOString());
+        assert.equal(await cancelTestAlert(db, scheduled), true);
+      }
       const id = await scheduleTestAlert(db, user.id, input);
       const mail = fakeEmail();
       assert.equal(await sendTestAlerts(db, { provider: mail.provider }), 0);
